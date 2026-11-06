@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vaultball Coach</title>
+  <meta name="description" content="A roguelike coaching card game for IB SEHS: personality, mental toughness and injury." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <canvas id="arena"></canvas>
+  <div id="vignette"></div>
+  <div id="app">
+    <header id="topbar" class="hidden"></header>
+    <main id="screen"></main>
+    <div id="dialog" class="hidden"><div class="dlg-name">THE COMMISSIONER</div><div class="dlg-text"></div><div class="dlg-hint">click to continue ▸</div></div>
+    <div id="modal" class="hidden"></div>
+    <div id="notebook" class="hidden"></div>
+    <div id="toasts"></div>
+    <div id="tooltip" class="hidden"></div>
+  </div>
+  <script src="js/three.min.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/cards.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/match.js"></script>
+  <script src="js/arena.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
