@@ -82,7 +82,7 @@
         <li><b>Each week</b> give every player one order: <i>Shooting, Team, Defence drills, Rest, Rehab</i> or <i>Mental skills</i>. Conscientious players actually do them.</li>
         <li><b>Watch the risk chip.</b> Tired, stressed, older or never-rehabbed players get hurt. Three injured at once and your run ends.</li>
         <li><b>Click a Big Five trait</b> on any player card to learn what it means and what it does to that player.</li>
-        <li><b>Key drives:</b> each match has 5 drives you play yourself, on attack and defence. Every shot and every long, risky pass asks an <b>IB command-term</b> question. Get it right and the pass completes or the shot gets a big boost. Get it wrong and you turn the ball over.</li>
+        <li><b>Key drives:</b> each match has 5 drives you play yourself, on attack and defence. Every shot, every long or risky pass, every steal attempt and every contested shot asks an <b>IB command-term</b> question. Get it right and the pass completes or the shot gets a big boost. Get it wrong and you turn the ball over.</li>
         <li>Players who did <b>shooting drills</b> shoot better, and players who did <b>team drills</b> pass faster.</li>
         <li>Use <b>Save code</b> any time to continue on another device.</li>
       </ol>
@@ -134,7 +134,7 @@
     const rec = S.record[S.season];
     $('#topbar').innerHTML = `<div class="brand">VAULTBALL<b>COACH</b></div>
       <div class="tb-mid"><span class="chip">${S.phase === 'camp' ? 'SUMMER CAMP' : S.phase === 'market' ? 'OFFSEASON' : `S${S.season} · WEEK ${S.week}/${VB.weeksInSeason(S)}`}</span>
-      <span class="chip">${rec.w}–${rec.l}</span>
+      <span class="chip">${rec.w}–${rec.l}</span>${(() => { const q = VB.qSummary(S, S.season); return q.a ? `<span class="chip ct" title="Command-term accuracy this season">TERMS <b>${q.pct}%</b> <small>${q.c}/${q.a}</small></span>` : ''; })()}
       ${opp ? `<span class="chip opp" style="--c:#${opp.color.toString(16).padStart(6, '0')}">NEXT: <b>${esc(opp.name)}</b> <small>${opp.rating} · ${VB.SURFACES[opp.surface].name}${opp.aggressive ? ' · aggressive' : ''}</small></span>` : ''}${extra || ''}</div>
       <div class="tb-btns"><button class="btn ghost small" data-act="notebook">📓 <span class="hide-sm">Notebook</span></button><button class="btn ghost small" data-act="save">💾 <span class="hide-sm">Save code</span></button><button class="btn ghost small" data-act="mute" title="Sound on/off">${VB.isMuted() ? '🔇' : '🔊'}</button><button class="btn ghost small" data-act="how">?</button></div>`;
   }
@@ -332,7 +332,7 @@
       const st = $('#mstage');
       st.innerHTML = `<div class="playcall ${mode}">
         <div class="pc-h"><span class="ev-tag">${clutch ? 'CLUTCH · ' : ''}KEY DRIVE · Q${q}</span><h2>${mode === 'attack' ? 'You have the ball. Call a play.' : 'They have the ball. Call a defence.'}</h2>
-        <small>${mode === 'attack' ? 'Every shot and every long or risky pass asks a command-term question.' : 'Get close when they shoot to contest. Answer right for a big contest.'}${clutch ? ' <b class="warn">Close game: anxious (high-N) players get less time.</b>' : ''}</small></div>
+        <small>${mode === 'attack' ? 'Every shot and every long or risky pass asks a command-term question.' : 'Steal attempts and contested shots ask a command-term question. Answer right to win the ball or force the miss.'}${clutch ? ' <b class="warn">Close game: anxious (high-N) players get less time.</b>' : ''}</small></div>
         <div class="plays">${plays.map((p, i) => `<button class="play" data-play="${p.id}"><span class="pk">${i + 1}</span>${VB.playDiagram(p.id)}<b>${p.name}</b><small>${p.desc}</small></button>`).join('')}</div>
         <button class="btn ghost small" data-play="sim">Sim this drive (no questions)</button></div>`;
       const pick = (id) => { window.removeEventListener('keydown', key); st.innerHTML = ''; res(id); };

@@ -55,7 +55,7 @@
       this.cv = document.getElementById('livecv');
       this.ctx = this.cv.getContext('2d');
       this.keys = {};
-      this.t = 0; this.clock = 20; this.down = 1; this.downs = 3;
+      this.t = 0; this.clock = this.mode === 'attack' ? 20 : 15; this.clock0 = this.clock; this.down = 1; this.downs = 3;
       this.ents = []; this.particles = []; this.shake = 0; this.slow = 1; this.paused = false; this.over = false;
       this.msg = ''; this.msgT = 0; this.result = { us: 0, them: 0, qs: [], text: '' };
       this.oppColor = '#' + (this.opp.color || 0xff5555).toString(16).padStart(6, '0');
@@ -278,7 +278,7 @@
       if (this.oppThink > 0) return;
       this.oppThink = 0.45;
       const dist = this.distToHoop(h);
-      if ((dist < 13 && dd > 1.8) || (dist < 22 && dd > 4.5) || (this.clock < 3 && dist < 32)) return this.oppShoot(h, dd);
+      if ((dist < 15 && dd > 1.6) || (dist < 26 && dd > 3.5) || (this.clock < 4 && dist < 34)) return this.oppShoot(h, dd);
       if (dd < 3.2 && R() < 0.55) {
         // pass to most open teammate ahead
         let best = null, bs = -1e9;
@@ -316,7 +316,7 @@
           for (const d of D) {
             const reach = d === this.ctrl ? 1.6 : 1.1;
             if (Math.hypot(d.x - b.x, d.z - b.z) < reach && b.h < 5) {
-              const pIn = b.from.team === 'us' ? (b.risky ? 0.9 : 0.12) : (d === this.ctrl ? 0.75 : 0.35);
+              const pIn = b.from.team === 'us' ? (b.risky ? 0.9 : 0.12) : (d === this.ctrl ? 0.55 : 0.12);
               if (R() < pIn) return this.intercept(d);
             }
           }
@@ -466,7 +466,7 @@
     oppShoot(h, contestDist) {
       const dist = this.distToHoop(h);
       const pts = dist > ARC ? 3 : 2;
-      let prob = clamp(0.58 - Math.max(0, dist - 6) * 0.016 + (h.rating - 45) / 150 - (contestDist < 2.5 ? 0.15 : contestDist < 4.5 ? 0.06 : 0), 0.08, 0.72);
+      let prob = clamp(0.74 - Math.max(0, dist - 6) * 0.013 + (h.rating - 45) / 150 - (contestDist < 2.5 ? 0.15 : contestDist < 4.5 ? 0.06 : 0), 0.1, 0.8);
       if (this.play === 'zone' && dist < 14) prob -= 0.12;
       if (this.play === 'zone' && dist > ARC) prob += 0.05;
       const c = this.ctrl;
@@ -483,14 +483,19 @@
     stealAction() {
       if (this.over || this.paused || this.mode !== 'defense') return;
       const c = this.ctrl, h = this.ball.holder;
-      if (!c || c.stun > 0) return;
+      if (!c || c.stun > 0 || (this.stealCD || 0) > this.t) return;
       if (!h || this.ball.state !== 'held' || h.team !== 'them') return;
       const d = Math.hypot(c.x - h.x, c.z - h.z);
-      if (d > 2.6) { this.say('Too far to steal', 0.7); return; }
+      if (d > 2.8) { this.say('Get closer to steal', 0.7); return; }
+      this.stealCD = this.t + 1.5;
       const f = c.p.form || {};
-      const pr = clamp(0.24 + (c.p.sk.def + (f.def || 0) * 6 - h.rating) / 90 + (this.play === 'press' ? 0.1 : 0), 0.08, 0.7);
-      if (R() < pr) { VB.sfx('steal'); this.addFx(h.x, h.z, OUR, 24); this.shake = 1; this.result.steals = (this.result.steals || 0) + 1; this.ball.holder = c; this.finish('STEAL! Stop!'); }
-      else { c.stun = 0.8; this.say('Missed the steal!', 0.8); this.addFx(c.x, c.z, '#ff8c32', 8); }
+      const edge = (c.p.sk.def + (f.def || 0) * 6 - h.rating) / 90 + (this.play === 'press' ? 0.08 : 0);
+      const lvl = h.rating >= 50 ? 2 : 1 + (R() < 0.4 ? 1 : 0);
+      this.ask(lvl, c, 'Read the play: steal!', (ok) => {
+        const pr = ok ? clamp(0.62 + edge, 0.35, 0.92) : 0;
+        if (R() < pr) { VB.sfx('steal'); this.addFx(h.x, h.z, OUR, 24); this.shake = 1; this.result.steals = (this.result.steals || 0) + 1; this.ball.holder = c; this.finish('STEAL! Stop!'); }
+        else { c.stun = ok ? 0.6 : 1.3; this.say(ok ? 'So close! They hold on.' : 'Beaten! They drive past.', 0.9); this.addFx(c.x, c.z, '#ff8c32', 8); }
+      });
     }
     switchAction() {
       if (this.mode !== 'defense' || this.over) return;
@@ -586,7 +591,7 @@
         if (t) { const p = this.proj(t.x, t.z, 4.6); if (p) { c.fillStyle = '#ffd23f'; c.font = `bold ${Math.max(10, p.s * 1.1)}px Inter, sans-serif`; c.textAlign = 'center'; c.fillText('▼', p.x, p.y); c.textAlign = 'left'; } }
       }
       // HUD numbers on canvas edge: clock bar
-      const frac = clamp(this.clock / 20, 0, 1);
+      const frac = clamp(this.clock / this.clock0, 0, 1);
       c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       c.fillStyle = 'rgba(255,255,255,.08)'; c.fillRect(0, 0, W, 4);
       c.fillStyle = frac < 0.25 ? '#ff3b4e' : '#3dfcff'; c.fillRect(0, 0, W * frac, 4);
@@ -685,7 +690,7 @@
       document.getElementById('tbtn2').textContent = this.mode === 'attack' ? 'SHOOT' : 'SWITCH';
       document.getElementById('livekeys').innerHTML = this.mode === 'attack'
         ? '<b>WASD/↑↓←→</b> move · <b>Space</b> pass (▼ = target) · <b>click</b> a teammate to pass · <b>E</b> shoot'
-        : '<b>WASD/↑↓←→</b> move · <b>Space</b> steal · <b>E/Q</b> switch player · get close when they shoot to <b>contest</b>';
+        : '<b>WASD/↑↓←→</b> move · <b>Space</b> steal (asks a question) · <b>E/Q</b> switch player · be close when they shoot to <b>contest</b>';
       // first touch on a laptop with a touchscreen reveals the controls
       this.ft = () => tc.classList.add('on');
       window.addEventListener('touchstart', this.ft, { once: true });
@@ -718,7 +723,7 @@
     open: false,
     show(q, o) {
       const el = document.getElementById('qbox');
-      this.open = true;
+      this.open = true; this.current = q;
       return new Promise((resolve) => {
         const lvlName = ['', 'Level 1 · recall', 'Level 2 · account', 'Level 3 · reasoning'][q.lvl];
         el.innerHTML = `<div class="qcard lvl${q.lvl}">

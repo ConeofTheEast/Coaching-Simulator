@@ -56,6 +56,9 @@ a { color: var(--cyan); cursor: pointer; }
 .tb-btns { display: flex; gap: 6px; }
 .chip { display: inline-block; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; color: var(--muted); font-family: Orbitron; letter-spacing: 0.04em; }
 .chip b { color: var(--text); }
+
+.chip.ct { border-color: rgba(255, 210, 63, 0.5); color: var(--gold); }
+.chip.ct small { color: var(--muted); font-family: Inter; }
 .chip.opp { border-color: var(--c); color: var(--text); }
 .chip.opp small { color: var(--muted); font-family: Inter; }
 
