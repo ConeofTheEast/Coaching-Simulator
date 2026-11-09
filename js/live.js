@@ -23,6 +23,25 @@
     ],
   };
 
+  // Tiny chalkboard diagrams for the play-call cards (top = hoop)
+  VB.playDiagram = function (id) {
+    const O = (x, y, c) => `<circle cx="${x}" cy="${y}" r="4" fill="none" stroke="${c || '#3dfcff'}" stroke-width="1.6"/>`;
+    const X = (x, y) => `<path d="M${x - 3.5} ${y - 3.5}l7 7m0 -7l-7 7" stroke="#ff3df0" stroke-width="1.6"/>`;
+    const A = (d, c) => `<path d="${d}" fill="none" stroke="${c || '#ffd23f'}" stroke-width="1.6" marker-end="url(#ah)" stroke-linecap="round"/>`;
+    const base = '<defs><marker id="ah" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L6 3L0 6z" fill="#ffd23f"/></marker></defs>'
+      + '<rect x="1" y="1" width="118" height="78" rx="6" fill="rgba(0,0,0,.25)" stroke="rgba(120,140,255,.35)"/><path d="M30 1 A30 30 0 0 0 90 1" fill="none" stroke="rgba(255,61,240,.5)"/><circle cx="60" cy="7" r="3" fill="none" stroke="#ff8c32" stroke-width="1.5"/>';
+    const off = (y) => [25, 60, 95].map((x) => O(x, y)).join('');
+    const P = {
+      flood: off(52) + off(66) + A('M25 52 L22 16') + A('M60 52 L60 14') + A('M95 52 L98 16') + O(60, 66, '#ffd23f'),
+      vault: off(52) + off(66) + A('M25 66 Q14 48 30 34') + A('M95 66 Q106 48 90 34') + '<path d="M54 44h12" stroke="#3dfcff" stroke-width="2"/>' + A('M60 52 L60 46'),
+      push: off(52) + off(66) + [44, 60, 76].map((x) => A(`M${x} 74 L${x} 58`, '#3dfcff')).join('') + A('M60 66 L60 30'),
+      zone: [30, 60, 90].map((x) => X(x, 20)).join('') + [30, 60, 90].map((x) => X(x, 34)).join('') + '<rect x="18" y="12" width="84" height="30" rx="8" fill="rgba(255,61,240,.08)" stroke="rgba(255,61,240,.4)" stroke-dasharray="3 3"/>' + off(62),
+      press: off(62) + [25, 60, 95].map((x) => X(x + 6, 54)).join('') + [25, 60, 95].map((x) => A(`M${x + 6} 50 L${x + 2} 58`, '#ff3df0')).join(''),
+      blitz: off(62) + [42, 60, 78].map((x) => X(x, 30)).join('') + [42, 60, 78].map((x) => A(`M${x} 34 L${60 + (x - 60) * 0.2} 56`, '#ff3df0')).join('') + X(20, 20) + X(100, 20),
+    };
+    return `<svg class="pdiag" viewBox="0 0 120 80">${base}${P[id] || ''}</svg>`;
+  };
+
   function oppPlayer(opp, i, r) {
     const seed = (opp.name.length * 31 + i * 7) % 97;
     const b = (k) => 2 + ((seed * (k + 3) + i * 5) % 8);

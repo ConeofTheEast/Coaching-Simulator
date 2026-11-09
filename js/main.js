@@ -333,7 +333,7 @@
       st.innerHTML = `<div class="playcall ${mode}">
         <div class="pc-h"><span class="ev-tag">${clutch ? 'CLUTCH · ' : ''}KEY DRIVE · Q${q}</span><h2>${mode === 'attack' ? 'You have the ball. Call a play.' : 'They have the ball. Call a defence.'}</h2>
         <small>${mode === 'attack' ? 'Every shot and every long or risky pass asks a command-term question.' : 'Get close when they shoot to contest. Answer right for a big contest.'}${clutch ? ' <b class="warn">Close game: anxious (high-N) players get less time.</b>' : ''}</small></div>
-        <div class="plays">${plays.map((p, i) => `<button class="play" data-play="${p.id}"><span class="pk">${i + 1}</span><span class="pi">${p.icon}</span><b>${p.name}</b><small>${p.desc}</small></button>`).join('')}</div>
+        <div class="plays">${plays.map((p, i) => `<button class="play" data-play="${p.id}"><span class="pk">${i + 1}</span>${VB.playDiagram(p.id)}<b>${p.name}</b><small>${p.desc}</small></button>`).join('')}</div>
         <button class="btn ghost small" data-play="sim">Sim this drive (no questions)</button></div>`;
       const pick = (id) => { window.removeEventListener('keydown', key); st.innerHTML = ''; res(id); };
       st.querySelectorAll('[data-play]').forEach((b) => (b.onclick = () => pick(b.dataset.play)));
