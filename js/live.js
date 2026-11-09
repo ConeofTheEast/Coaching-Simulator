@@ -789,9 +789,15 @@
     for (let r = 0; r < 3; r++) for (let l = 0; l < 3; l++) if (g[r][l]) us.push(g[r][l]);
     const avg = (k) => us.reduce((s, p) => s + p.sk[k] + ((p.form || {})[k === 'sht' ? 'sht' : k === 'pas' ? 'pas' : 'def'] || 0) * 3, 0) / Math.max(1, us.length);
     const opp = sim.opp.rating;
-    if (mode === 'attack') { const pr = clamp(0.38 + (avg('sht') * 0.6 + avg('pas') * 0.4 - opp) / 80, 0.15, 0.7); return R() < pr ? { us: R() < 0.25 ? 3 : 2, them: 0, text: 'Simulated: score.' } : { us: 0, them: 0, text: 'Simulated: no score.' }; }
-    const pr = clamp(0.45 - (avg('def') - opp) / 80, 0.15, 0.7);
-    return R() < pr ? { us: 0, them: 2, text: 'Simulated: they scored.' } : { us: 0, them: 0, text: 'Simulated: stop.' };
+    // Simulating is deliberately the weaker option: no command-term boost, more turnovers, softer defence.
+    if (mode === 'attack') {
+      const pr = clamp(0.24 + (avg('sht') * 0.6 + avg('pas') * 0.4 - opp) / 100, 0.1, 0.42);
+      if (R() < pr) return { us: R() < 0.2 ? 3 : 2, them: 0, text: 'Simulated: score.' };
+      if (R() < 0.3) return { us: 0, them: 2, text: 'Simulated: turnover, and they score on the fast break.' };
+      return { us: 0, them: 0, text: 'Simulated: no score.' };
+    }
+    const pr = clamp(0.62 - (avg('def') - opp) / 100, 0.45, 0.8);
+    return R() < pr ? { us: 0, them: R() < 0.3 ? 3 : 2, text: 'Simulated: they scored.' } : { us: 0, them: 0, text: 'Simulated: stop.' };
   };
 
   // ---------------- Question overlay ----------------

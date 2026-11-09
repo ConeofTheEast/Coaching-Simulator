@@ -334,7 +334,7 @@
         <div class="pc-h"><span class="ev-tag">${clutch ? 'CLUTCH · ' : ''}KEY DRIVE · Q${q}</span><h2>${mode === 'attack' ? 'You have the ball. Call a play.' : 'They have the ball. Call a defence.'}</h2>
         <small>${mode === 'attack' ? 'Every shot and every long or risky pass asks a command-term question.' : 'Steal attempts and contested shots ask a command-term question. Answer right to win the ball or force the miss.'}${clutch ? ' <b class="warn">Close game: anxious (high-N) players get less time.</b>' : ''}</small></div>
         <div class="plays">${plays.map((p, i) => `<button class="play" data-play="${p.id}"><span class="pk">${i + 1}</span>${VB.playDiagram(p.id)}<b>${p.name}</b><small>${p.desc}</small></button>`).join('')}</div>
-        <button class="btn ghost small" data-play="sim">Sim this drive (no questions)</button></div>`;
+        <button class="btn ghost small" data-play="sim">Sim this drive (no questions, but worse odds: fewer points for you, more for them)</button></div>`;
       const pick = (id) => { window.removeEventListener('keydown', key); st.innerHTML = ''; res(id); };
       st.querySelectorAll('[data-play]').forEach((b) => (b.onclick = () => pick(b.dataset.play)));
       const key = (e) => { const n = +e.key; if (n >= 1 && n <= 3) pick(plays[n - 1].id); };
