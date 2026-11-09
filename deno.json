@@ -1,0 +1,15 @@
+{
+  "lint": {
+    "include": ["js/", "tests/"],
+    "exclude": ["js/three.min.js"],
+    "rules": {
+      "exclude": [
+        "no-unused-vars", "no-empty", "no-inner-declarations", "prefer-const", "no-window", "no-window-prefix",
+        "no-cond-assign", "no-fallthrough", "no-case-declarations", "no-self-assign", "no-extra-boolean-cast",
+        "no-useless-escape", "no-constant-condition", "no-prototype-builtins", "no-sparse-arrays", "ban-unused-ignore",
+        "no-unused-labels", "no-this-alias", "no-node-globals", "no-process-global"
+      ]
+    }
+  },
+  "test": { "include": ["tests/"] }
+}

@@ -47,7 +47,7 @@
     // ---------------- setup ----------------
     setup() {
       const grid = this.sim.grid;
-      const z0 = 26;
+      const z0 = 38;
       const att = this.mode === 'attack';
       const lanesX = [-15, 0, 15];
       let k = 0;
@@ -93,7 +93,7 @@
         e.blocker = false; e.screen = false;
         const laneX = [-15, 0, 15][e.l];
         if (e === this.ball.holder) { e.route = null; return; }
-        if (play === 'flood') e.route = e.r === 0 ? { x: laneX * 1.1, z: Math.min(HOOP_Z - 6, z + 34) } : e.r === 1 ? { x: laneX * 1.3 + (e.l === 1 ? 8 : 0), z: z + 18 } : { x: laneX * 0.6, z: z + 4 };
+        if (play === 'flood') e.route = e.r === 0 ? { x: laneX * 1.1, z: Math.min(HOOP_Z - 8, z + 42) } : e.r === 1 ? { x: laneX * 1.3 + (e.l === 1 ? 8 : 0), z: z + 18 } : { x: laneX * 0.6, z: z + 4 };
         else if (play === 'vault') {
           if (e.r === 0) { e.route = { x: laneX * 0.7, z: z + 16 }; e.screen = true; }
           else if (e.r === 1) e.route = { x: [-17, 0, 17][e.l], z: HOOP_Z - ARC - 2 + Math.abs([-17, 0, 17][e.l]) * 0.35 };
@@ -227,6 +227,7 @@
         else if (chasing) {
           tx = carrier.x + carrier.vx * 0.3; tz = carrier.z + carrier.vz * 0.3;
           if (this.mode === 'attack') sp *= 0.9 + Math.min(0.25, this.t / 40); // pressure grows with the clock
+          else sp *= 0.85; // your controlled defender has to make the big plays
         } else if (scheme === 'zone') {
           const zx = [-12, 0, 12][e.l], zz = HOOP_Z - [30, 18, 8][e.r];
           const target = carrier || b;
@@ -702,7 +703,7 @@
           <div class="qtimer"><i></i></div>
           ${o.nerves ? `<div class="qnerves">${o.nerves}</div>` : ''}
           <div class="qprompt">${q.prompt}</div>
-          <div class="qstem ${q.kind === 'ex' ? 'ex' : ''}">${q.kind === 'ex' ? q.stem.replace(q.term, `<b class="cterm">${q.term}</b>`) : q.stem}</div>
+          <div class="qstem ${q.kind === 'ex' ? 'ex' : ''}">${q.kind === 'ex' ? q.stem.replace(new RegExp(q.term, 'i'), (m) => `<b class="cterm">${m}</b>`) : q.stem}</div>
           <div class="qopts">${q.options.map((t, i) => `<button class="qopt" data-i="${i}"><span class="k">${i + 1}</span><span>${t}</span></button>`).join('')}</div>
           <div class="qfoot"></div></div>`;
         el.classList.add('on');
