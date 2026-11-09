@@ -533,7 +533,7 @@
       this.cv.width = w * dpr; this.cv.height = h * dpr; this.cv.style.width = w + 'px'; this.cv.style.height = h + 'px';
       this.W = w; this.H = h; this.dpr = dpr;
       this.portrait = h > w * 1.1;
-      this.F = this.portrait ? h * 0.78 : Math.max(w * 0.62, h * 0.55);
+      this.F = this.portrait ? h * 0.55 : Math.max(w * 0.62, h * 0.55);
       this.horizon = h * (this.portrait ? 0.24 : 0.2);
       this.camH = 16;
     }
@@ -590,6 +590,14 @@
         const t = this.bestTarget();
         if (t) { const p = this.proj(t.x, t.z, 4.6); if (p) { c.fillStyle = '#ffd23f'; c.font = `bold ${Math.max(10, p.s * 1.1)}px Inter, sans-serif`; c.textAlign = 'center'; c.fillText('▼', p.x, p.y); c.textAlign = 'left'; } }
       }
+      // off-screen teammates: edge arrows
+      this.us.forEach((e) => {
+        const p = this.proj(e.x, e.z, 2.5); if (!p || (p.x > 6 && p.x < W - 6)) return;
+        const left = p.x <= 6, y = clamp(p.y, 60, H - 160), x = left ? 4 : W - 4;
+        c.fillStyle = e === this.ctrl ? '#ffd23f' : 'rgba(61,252,255,.85)';
+        c.beginPath(); c.moveTo(x, y); c.lineTo(x + (left ? 16 : -16), y - 11); c.lineTo(x + (left ? 16 : -16), y + 11); c.closePath(); c.fill();
+        c.font = 'bold 11px Orbitron, monospace'; c.textAlign = left ? 'left' : 'right'; c.fillText(String(e.p.num), x + (left ? 19 : -19), y + 4); c.textAlign = 'left';
+      });
       // HUD numbers on canvas edge: clock bar
       const frac = clamp(this.clock / this.clock0, 0, 1);
       c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
