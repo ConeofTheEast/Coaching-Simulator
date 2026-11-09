@@ -34,6 +34,7 @@
       week: {}, traitProgress: { O: 0, C: 0, E: 0, A: 0, N: 0 },
       stats: { gp: 0, pts: 0, ast: 0 }, seasonStats: {},
       note: t.note || '', known: { all: true }, selfReport: null,
+      order: 'pas', form: { sht: 0, pas: 0, def: 0 },
     };
     if (p.name === 'Orrin Vale') p.stress = 62;
     return p;
@@ -315,6 +316,7 @@
     if (!state.notebook.includes(concept)) { state.notebook.push(concept); state.newConcepts.push(concept); }
   };
 
+  VB.setIdCounter = (n) => { _id = n; };
   // ---------------- New run ----------------
   VB.newState = function (seed) {
     VB.seed(seed || Date.now());
@@ -403,23 +405,84 @@
   };
 
   // ---------------- Weekly processing ----------------
-  VB.endTraining = function (state) {
-    const engine = state.synergy.flags.engine ? 1.25 : 1;
+  // ---------------- Weekly orders (one per player) ----------------
+  VB.ORDERS = {
+    sht: { name: 'Shooting drills', short: 'Shoot', icon: '◎', skill: 'sht', desc: 'Shooting skill up. Their shots are more accurate in live play.' },
+    pas: { name: 'Team drills', short: 'Team', icon: '⇄', skill: 'pas', desc: 'Passing skill and team chemistry up. Their passes are faster in live play.' },
+    def: { name: 'Defence drills', short: 'Defend', icon: '▣', skill: 'def', desc: 'Defence skill up. Better steals and contests in live play.' },
+    rest: { name: 'Rest & prehab', short: 'Rest', icon: '☾', desc: 'Recover: lowers fatigue, overuse load and injury likelihood (prehab). No skill gain.' },
+    rehab: { name: 'Rehab', short: 'Rehab', icon: '✚', desc: 'Restore strength, range of movement and proprioception after injury. Needed to clear an old injury.' },
+    mental: { name: 'Mental skills', short: 'Mind', icon: '✦', desc: 'Imagery, self-talk and arousal control. Lowers stress, builds composure (+2 s on clutch questions). Open players gain more.' },
+  };
+  // Returns lines describing what happened (adherence is driven by Conscientiousness).
+  VB.applyOrders = function (state) {
+    const lines = [];
+    const engine = state.synergy && state.synergy.flags.engine ? 1.25 : 1;
+    let teamDrill = 0;
     state.roster.forEach((p) => {
-      if (VB.isOut(p)) return;
-      if (p.rest) {
-        p.niggle = false; // a week off lets a minor niggle settle
-        p.fatigue = clamp(p.fatigue - 30, 0, 100);
-        p.strain = clamp(p.strain - 12, 0, 150);
-        p.health = clamp(p.health + 2, 0, 100);
+      p.week = p.week || {};
+      let o = VB.ORDERS[p.order] ? p.order : 'pas';
+      if (VB.isOut(p) && o !== 'rehab' && o !== 'rest') o = p.order = 'rehab';
+      const decay = (k) => { p.form[k] = Math.max(0, (p.form[k] || 0) - 1); };
+      if (VB.ORDERS[o].skill) {
+        const k = VB.ORDERS[o].skill;
+        const ad = VB.adherence(p, { team: o === 'pas' }, state);
+        const mult = ad.outcome === 'full' ? 1 : ad.outcome === 'partial' ? 0.5 : 0.15;
+        p.sk[k] = clamp(r1(p.sk[k] + 1.6 * engine * mult), 1, 99);
+        ['sht', 'pas', 'def'].forEach((x) => (x === k ? (p.form[x] = Math.min(3, (p.form[x] || 0) + (mult >= 0.5 ? 1 : 0))) : decay(x)));
+        p.fatigue = clamp(p.fatigue + 12, 0, 100); p.strain = clamp(p.strain + 7, 0, 150);
+        if (o === 'pas') teamDrill += mult;
+        if (ad.outcome !== 'full') lines.push({ text: `${p.name} ${ad.outcome === 'skip' ? 'skipped most of' : 'half-did'} ${VB.ORDERS[o].name.toLowerCase()} (Conscientiousness ${p.b5.C}).`, concept: 'big5_C', tone: 'bad' });
+        // perfectionists over-train on their own
+        if (p.b5.C >= 8 && p.b5.N >= 7) { p.strain = clamp(p.strain + 8, 0, 150); p.stress = clamp(p.stress + 5, 0, 100); lines.push({ text: `${p.name} stayed late and over-trained again (high C + high N: maladaptive perfectionism).`, concept: 'perfectionism', tone: 'bad' }); }
       } else {
-        p.fatigue = clamp(p.fatigue + 10, 0, 100);
-        p.strain = clamp(p.strain + 6, 0, 150);
-        const g = 0.6 * engine * (0.5 + p.b5.C / 10);
-        const key = p.role === 'STR' ? 'sht' : p.role === 'LNK' ? 'pas' : 'def';
-        p.sk[key] = clamp(r1(p.sk[key] + g), 1, 99);
+        ['sht', 'pas', 'def'].forEach(decay);
+      }
+      if (o === 'rest') {
+        p.rest = true; p.niggle = false; p.prehab = Math.max(p.prehab, 2);
+        p.fatigue = clamp(p.fatigue - 32, 0, 100); p.strain = clamp(p.strain - 14, 0, 150); p.health = clamp(p.health + 3, 0, 100);
+        p.week.sitOut = !VB.isOut(p) && p.fatigue > 70 ? false : p.week.sitOut;
+      }
+      if (o === 'rehab') {
+        const ad = VB.adherence(p, { rehab: true }, state);
+        const step = ad.outcome === 'full' ? 1 : ad.outcome === 'partial' ? 0.5 : 0;
+        p.fatigue = clamp(p.fatigue - 15, 0, 100); p.strain = clamp(p.strain - 8, 0, 150);
+        if (p.injury) p.injury.rehab = (p.injury.rehab || 0) + step;
+        else {
+          const h = VB.unrehabbed(p)[0];
+          if (h) { h.rehab = (h.rehab || 0) + step; if (h.rehab >= 2) { h.cleared = true; state.metrics.rehabFull++; lines.push({ text: `${p.name}'s old ${VB.INJURIES[h.type].name.toLowerCase()} is fully rehabilitated. Re-injury risk gone.`, concept: 'rehab', tone: 'good' }); } }
+          p.prehab = Math.max(p.prehab, 1);
+        }
+        if (step < 1) lines.push({ text: `${p.name} ${step ? 'only half-completed' : 'skipped'} rehab (C ${p.b5.C}, self-compassion ${p.sc}${VB.hidesPain(p) ? ', "too tough" to rehab' : ''}).`, concept: VB.hidesPain(p) ? 'mt_darkside' : 'rehab', tone: 'bad' });
+      }
+      if (o === 'mental') {
+        const m = VB.psychMult(p, state);
+        p.stress = clamp(p.stress - 14 * m, 0, 100);
+        p.mt.control = clamp(r1(p.mt.control + 0.5 * m), 1, 10); p.mt.confidence = clamp(r1(p.mt.confidence + 0.4 * m), 1, 10);
+        p.week.mental = true; p.week.selfTalk = true;
+        p.fatigue = clamp(p.fatigue - 8, 0, 100);
+        if (p.b5.O <= 3) lines.push({ text: `${p.name} is sceptical of mental skills (Openness ${p.b5.O}), so gains are smaller.`, concept: 'big5_O', tone: 'neutral' });
+        if (p.b5.N >= 7) { p.traitProgress.N = (p.traitProgress.N || 0) + 1; if (p.traitProgress.N >= 3) VB.addTraitProgress(state, p, 'N', -1); }
       }
     });
+    if (teamDrill >= 4) { state.chemBonus = (state.chemBonus || 0) + Math.round(teamDrill / 2); lines.push({ text: `${Math.round(teamDrill)} players did team drills together: chemistry +${Math.round(teamDrill / 2)}.`, concept: 'big5_A', tone: 'good' }); }
+    return lines;
+  };
+  VB.endTraining = function (state) { return VB.applyOrders(state); };
+
+  // Simple, single-colour risk for the UI (the full model stays hidden).
+  VB.simpleRisk = function (state, p) {
+    if (VB.isOut(p)) return { cat: 'out', reasons: [] };
+    const opp = VB.currentOpponent(state);
+    const pos = VB.findSlot(state, p.id);
+    const role = pos && pos.row >= 0 ? VB.ROW_ROLE[pos.row] : p.role;
+    const rk = VB.risk(p, { opp }, role);
+    let cat = rk.cat;
+    if ((p.exposure || 0) >= 2 && cat !== 'low') cat = 'very high';
+    else if ((p.exposure || 0) >= 1 && cat === 'medium') cat = 'high';
+    const reasons = rk.L.factors.filter((f) => f.d > 0).concat(rk.S.factors.filter((f) => f.d > 0 && !f.base)).map((f) => f.label);
+    if ((p.exposure || 0) >= 1) reasons.push('Has played several high-risk matches in a row');
+    return { cat, reasons, L: rk.L.level, S: rk.S.level };
   };
 
   // After a match: recovery, stress, injuries heal, overuse check, flags reset.

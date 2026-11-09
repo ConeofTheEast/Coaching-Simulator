@@ -1,245 +1,124 @@
-/* Vaultball Coach — UI building blocks (HTML strings + small DOM helpers). */
+/* Vaultball Coach — UI helpers (DOM only). */
 (function () {
-  const VB = (globalThis.VB = globalThis.VB || {});
-  const UI = (VB.UI = {});
+  const VB = globalThis.VB;
   const $ = (s, r) => (r || document).querySelector(s);
-  UI.$ = $;
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  UI.esc = esc;
-  const r1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  UI.TRAIT_COLORS = { O: '#9b7bff', C: '#2de2e6', E: '#ffd23f', A: '#3ddc84', N: '#ff4d7e', MT: '#ff8c32' };
-  UI.TRAIT_LONG = { O: 'Openness', C: 'Conscientiousness', E: 'Extraversion', A: 'Agreeableness', N: 'Neuroticism' };
-
-  // ---------- Big Five pentagon ----------
-  UI.pentagon = function (b5, size, opts) {
-    opts = opts || {};
-    const keys = ['O', 'C', 'E', 'A', 'N'];
-    const cx = size / 2, cy = size / 2 + (opts.labels ? 4 : 0), R = size / 2 - (opts.labels ? 26 : 3);
-    const pt = (i, v) => { const a = -Math.PI / 2 + (i * 2 * Math.PI) / 5; return [cx + Math.cos(a) * R * v, cy + Math.sin(a) * R * v]; };
-    let g = '';
-    [0.33, 0.66, 1].forEach((k) => { g += `<polygon points="${keys.map((_, i) => pt(i, k).join(',')).join(' ')}" fill="none" stroke="rgba(150,180,255,${k === 1 ? 0.35 : 0.15})" stroke-width="1"/>`; });
-    keys.forEach((_, i) => { const [x, y] = pt(i, 1); g += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="rgba(150,180,255,0.15)"/>`; });
-    const masked = opts.masked || {};
-    const vals = keys.map((k) => (masked[k] ? 0.5 : (b5[k] || 0) / 10));
-    const anyMask = keys.some((k) => masked[k]);
-    g += `<polygon points="${vals.map((v, i) => pt(i, v).join(',')).join(' ')}" fill="${anyMask ? 'rgba(120,120,140,0.25)' : 'rgba(45,226,230,0.28)'}" stroke="${anyMask ? '#778' : '#2de2e6'}" stroke-width="1.5" ${anyMask ? 'stroke-dasharray="3 3"' : ''}/>`;
-    keys.forEach((k, i) => { if (masked[k]) return; const [x, y] = pt(i, vals[i]); g += `<circle cx="${x}" cy="${y}" r="${size > 80 ? 3.5 : 2}" fill="${UI.TRAIT_COLORS[k]}"/>`; });
-    if (opts.labels) keys.forEach((k, i) => {
-      const [x, y] = pt(i, 1.28);
-      g += `<text x="${x}" y="${y + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="${UI.TRAIT_COLORS[k]}">${k} ${masked[k] ? '?' : b5[k]}</text>`;
-    });
-    return `<svg class="penta" width="${size}" height="${size + (opts.labels ? 6 : 0)}" viewBox="0 0 ${size} ${size + (opts.labels ? 6 : 0)}">${g}</svg>`;
+  // ---------- Big Five reference (textbook C.1.1 descriptors) ----------
+  VB.B5INFO = {
+    O: { name: 'Openness', color: '#b388ff',
+      def: 'Openness (to experience) describes how much a person seeks out new experiences, ideas and ways of doing things.',
+      desc: ['originality', 'need for variety', 'curiosity'],
+      high: 'Imaginative, curious, likes variety, happy to try a new tactic or training method.',
+      low: 'Prefers the familiar, practical and routine. Likes repetition and proven methods.',
+      sport: 'A high-O player volunteers to try a new position. A low-O player wants the same warm-up every week.',
+      effect: (v) => v >= 7 ? `Mental-skills training works better for this player (×${(0.6 + v * 0.08).toFixed(2)}).` : v <= 3 ? `Sceptical of new methods: mental-skills gains are smaller (×${(0.6 + v * 0.08).toFixed(2)}).` : `Average response to mental-skills training (×${(0.6 + v * 0.08).toFixed(2)}).`,
+      look: 'Sprite cue: hairstyle and hair colour. Bold cuts and neon colours = high Openness.' },
+    C: { name: 'Conscientiousness', color: '#3ddc84',
+      def: 'Conscientiousness describes how organised, careful and self-disciplined a person is in working towards goals.',
+      desc: ['constraint', 'achievement striving', 'self-discipline'],
+      high: 'Organised, reliable, plans ahead, sticks to the training plan.',
+      low: 'Spontaneous, disorganised, more likely to cut corners or skip sessions.',
+      sport: 'A high-C player does every rep of their rehab. A low-C player "forgets" the cool-down. Very high C with high N can tip into maladaptive perfectionism.',
+      effect: (v) => v >= 6 ? 'Usually completes weekly drills and rehab in full.' : v >= 4 ? 'Sometimes only half-completes drills, so gains are smaller.' : 'Often skips drills and rehab. Choose orders that matter most.',
+      look: 'Sprite cue: kit. Tucked shirt and neat visor = high C. Untucked, jagged hem and odd socks = low C.' },
+    E: { name: 'Extraversion', color: '#ffd23f',
+      def: 'Extraversion describes how much a person is energised by other people and seeks social contact and stimulation. The opposite is introversion.',
+      desc: ['enthusiasm', 'sociability', 'assertiveness'],
+      high: 'Talkative, energetic, enjoys the spotlight, takes charge of the huddle.',
+      low: 'Introverted: reserved, quieter, prefers working alone or in small groups. Not the same as shy.',
+      sport: 'Extraverts often call the plays and lift team energy, and they enjoy group training. Introverts may prefer individual sessions.',
+      effect: (v) => v >= 7 ? 'Enjoys team drills (better adherence). Lifts team energy (Loud Floor aura when many are high).' : v <= 3 ? 'Quiet on court. A team full of introverts can go silent (Silent Floor aura).' : 'Average energy on court.',
+      look: 'Sprite cue: posture. Arms out and wide stance = high E. Arms crossed and head dipped = low E.' },
+    A: { name: 'Agreeableness', color: '#5bb6ff',
+      def: 'Agreeableness describes how cooperative, trusting and caring a person is towards others.',
+      desc: ['amiability', 'altruism', 'modesty'],
+      high: 'Friendly, helpful, cooperative, puts the team first.',
+      low: 'Competitive, sceptical of others, can be argumentative or selfish with the ball.',
+      sport: 'A high-A player makes the extra pass for an assist. A low-A player shoots when a teammate is open.',
+      effect: (v) => v >= 7 ? 'More assists. Many high-A players create the Glue aura (chemistry up).' : v <= 3 ? 'Ball-hog risk: fewer assists, more arguments (Friction aura when many are low).' : 'Average teamwork.',
+      look: 'Sprite cue: face. Rounder face and warm smile = high A. Hard jaw and flat smirk = low A. High-A players lean toward teammates.' },
+    N: { name: 'Neuroticism', color: '#ff5e7a',
+      def: 'Neuroticism describes how often a person experiences negative emotions. The opposite end is emotional stability.',
+      desc: ['nervousness', 'anxiety', 'anger'],
+      high: 'Worries a lot, gets anxious or angry under pressure, finds stress hard to shake off.',
+      low: 'Emotionally stable: calm, even-tempered, recovers quickly from setbacks.',
+      sport: 'A high-N player may freeze in the last minute of a close game. Stress and poor sleep also raise injury risk.',
+      effect: (v) => v >= 7 ? `Less time on clutch questions in close finishes (−${((v - 6) * 1.5).toFixed(1)} s). Stress builds faster after losses.` : v <= 3 ? 'Composed in the clutch. No timer penalty.' : 'Mostly composed under pressure.',
+      look: 'Sprite cue: brows and mouth. Raised inner brows, tight wobbly mouth, sweat and a slight jitter = high N.' },
   };
 
-  UI.bar = function (label, val, max, cls, title) {
-    const pct = Math.max(0, Math.min(100, (val / max) * 100));
-    return `<div class="bar ${cls || ''}" ${title ? `data-tip="${esc(title)}"` : ''}><span class="bl">${label}</span><span class="bt"><i style="width:${pct}%"></i></span><span class="bv">${Math.round(val)}</span></div>`;
-  };
-
-  UI.riskChip = function (cat) { return `<span class="risk-chip" style="--rc:${VB.RISK_COLORS[cat]}">${cat.toUpperCase()}</span>`; };
-  UI.pips = function (p, cat) {
-    const e = p.exposure || 0, due = cat && VB.injuryDue(p, cat);
-    let h = '';
-    for (let i = 0; i < 3; i++) h += `<i class="${i < e ? 'on' : ''} ${due && i >= e ? 'next' : ''}"></i>`;
-    return `<span class="pips ${due ? 'due' : ''}" data-tip="Injury exposure ${e}/3. Each match at HIGH risk adds 1 (VERY HIGH adds 2). LOW risk or rest removes 1. At 3 the player gets injured.${due ? ' ⚠ If they play at this risk level, they WILL get hurt.' : ''}">${h}</span>`;
-  };
-
-  // ---------- Mini card (board) ----------
-  UI.miniCard = function (p, state, ctx) {
-    ctx = ctx || {};
-    const out = VB.isOut(p);
-    const role = ctx.slotRole || p.role;
-    const rk = VB.risk(p, { opp: ctx.opp }, role);
-    const ovr = VB.ovr(p, role);
-    const offRole = role !== p.role;
-    const hist = p.history.map((h) => `<span class="hi ${h.cleared ? 'cleared' : ''}" data-tip="${esc(VB.INJURIES[h.type].name + (h.cleared ? ' (rehabbed)' : ' — not fully rehabbed'))}">${VB.INJURIES[h.type].icon}</span>`).join('');
-    const cls = ['pcard', 'mini', `role-${p.role}`, out ? 'out' : '', ctx.selected ? 'selected' : '', ctx.target || '', p.rest ? 'resting' : ''].join(' ');
-    return `<div class="${cls}" data-id="${p.id}" draggable="true">
-      <div class="pc-top"><span class="num">${p.num}</span><span class="nm">${esc(p.name)}</span><span class="rl ${offRole ? 'off' : ''}" data-tip="${offRole ? `Natural ${VB.ROLES[p.role].name} playing ${VB.ROLES[role].name}: −10` : VB.ROLES[p.role].desc}">${p.role}</span></div>
-      <div class="pc-mid">${UI.pentagon(p.b5, 52)}<div class="pc-stats"><div><b>${ovr}</b><small> OVR</small></div><div>${r1(VB.ppg(p))}<small> PPG</small></div><div>${r1(VB.apg(p))}<small> APG</small></div><div><small>AGE </small>${p.age}</div></div>
-      <div class="pc-bars">${UI.bar('HP', p.health, 100, 'hp', 'Overall health')}${UI.bar('FT', p.fatigue, 100, 'ft', 'Fatigue')}${UI.bar('ST', p.strain, 100, p.strain >= 70 ? 'st warn' : 'st', 'Strain — cumulative load. 100 = overuse injury')}${UI.bar('SS', p.stress, 100, p.stress >= 60 ? 'ss warn' : 'ss', 'Stress. 60+ raises injury likelihood')}</div></div>
-      <div class="pc-foot"><span class="hist">${hist || '<span class="hi none">no injuries</span>'}</span>${out ? '' : UI.pips(p, rk.cat) + UI.riskChip(rk.cat)}</div>
-      ${out ? `<div class="ribbon">OUT ${p.injury.nonlinear ? '?' : p.injury.weeks} WK<small>${esc(VB.INJURIES[p.injury.type].name)}</small></div>` : ''}
-      ${p.rest ? '<div class="badge rest">REST</div>' : ''}
-      ${p.niggle ? '<div class="badge niggle" data-tip="Niggle: minor pain. Likelihood +1">!</div>' : ''}
-      ${p.prehab ? `<div class="badge prehab" data-tip="Prehab active ${p.prehab} wk">P</div>` : ''}
-      ${p.ppe ? '<div class="badge ppe" data-tip="Protective gear fitted">G</div>' : ''}
-      ${ctx.preview ? `<div class="preview ${ctx.preview.cls}">${ctx.preview.text}</div>` : ''}
-    </div>`;
-  };
-
-  // ---------- Risk matrix ----------
-  UI.riskMatrix = function (L, S) {
-    let h = '<div class="rmatrix"><div class="rm-y">LIKELIHOOD ↑</div><div class="rm-grid">';
-    for (let l = 5; l >= 1; l--) for (let s = 1; s <= 5; s++) {
-      const cat = VB.RISK_TABLE[l][s - 1];
-      h += `<i style="background:${VB.RISK_COLORS[cat]}" class="${l === L && s === S ? 'on' : ''}"></i>`;
-    }
-    return h + '</div><div class="rm-x">SEVERITY →</div></div>';
-  };
-  UI.riskPanel = function (p, state, opp, role) {
-    const rk = VB.risk(p, { opp }, role);
-    const fl = (f) => `<li class="${f.d > 0 ? 'up' : 'down'}"><span class="tag ${f.kind}">${f.kind === 'internal' ? 'INT' : 'EXT'}</span>${esc(f.label)} <b>${f.base ? 'base ' + f.d : (f.d > 0 ? '+' : '') + f.d}</b></li>`;
-    return `<div class="riskpanel">
-      <div class="rp-head">INJURY RISK ${UI.riskChip(rk.cat)} ${UI.pips(p, rk.cat)}<span class="formula" data-tip="${esc(VB.CONCEPTS.risk.text)}">risk = likelihood × severity</span></div>
-      <div class="rp-exp ${VB.injuryDue(p, rk.cat) ? 'due' : ''}">${VB.injuryDue(p, rk.cat) ? `⚠ Exposure ${p.exposure || 0}/3 — playing at ${rk.cat.toUpperCase()} risk means an injury. Lower likelihood or severity, or bench them.` : `Exposure ${p.exposure || 0}/3 · this match at ${rk.cat} risk: ${VB.EXPOSURE_INC[rk.cat] > 0 ? '+' + VB.EXPOSURE_INC[rk.cat] : VB.EXPOSURE_INC[rk.cat] < 0 ? '−1' : 'no change'}`}</div>
-      <div class="rp-body">${UI.riskMatrix(rk.L.level, rk.S.level)}
-        <div class="rp-lists"><div><b>Likelihood ${rk.L.level} · ${VB.LIKELIHOOD_NAMES[rk.L.level]}</b><ul>${rk.L.factors.map(fl).join('') || '<li class="none">base 1 — no risk factors</li>'}</ul></div>
-        <div><b>Severity ${rk.S.level} · ${VB.SEVERITY_NAMES[rk.S.level]}</b>${opp ? '' : '<small> (next opponent unknown)</small>'}<ul>${rk.S.factors.map(fl).join('')}</ul></div></div></div></div>`;
-  };
-
-  // ---------- Big detail card ----------
-  UI.bigCard = function (p, state, opts) {
-    opts = opts || {};
-    const opp = opts.opp;
-    const role = opts.slotRole || p.role;
-    const masked = opts.masked || {};
-    const m = (k, v) => (masked[k] ? '<span class="mask">?</span>' : v);
-    const ss = p.seasonStats[state.season] || { gp: 0, pts: 0, ast: 0 };
-    const hist = p.history.length ? p.history.map((h) => {
-      const d = VB.INJURIES[h.type];
-      return `<li><span class="hi ${h.cleared ? 'cleared' : ''}">${d.icon}</span>${esc(d.name)} <small class="${d.kind}">${d.kind}</small> ${h.cleared ? '<em class="ok">rehabbed</em>' : `<em class="warn">re-injury risk${h.rehab ? ` · rehab ${h.rehab}/2` : ''}</em>`}</li>`;
-    }).join('') : '<li class="none">No injury history</li>';
-    const front = `<div class="bc-face front">
-      <div class="bc-head"><div class="bc-num">${p.num}</div><div><div class="bc-name">${esc(p.name)}</div><div class="bc-sub">${VB.ROLES[p.role].name} · Age ${p.age}${role !== p.role ? ` · <span class="warn">playing ${VB.ROLES[role].name}</span>` : ''}</div></div><div class="bc-ovr">${m('T', VB.ovr(p, role))}<small>OVR</small></div></div>
-      <div class="bc-row">${UI.pentagon(p.b5, 168, { labels: true, masked })}
-        <div class="bc-stats">
-          <div class="kv"><span>PPG</span><b>${r1(VB.ppg(p))}</b></div><div class="kv"><span>APG</span><b>${r1(VB.apg(p))}</b></div>
-          <div class="kv"><span>Season</span><b>${ss.pts}p / ${ss.ast}a</b></div>
-          <div class="sk">${['sht', 'pas', 'def', 'fit'].map((k) => `<div><small>${k.toUpperCase()}</small><b>${m('T', Math.round(p.sk[k]))}</b></div>`).join('')}</div>
-        </div></div>
-      <div class="bc-bars">${UI.bar('Health', masked.T ? 50 : p.health, 100, 'hp')}${UI.bar('Fatigue', p.fatigue, 100, 'ft')}${UI.bar('Strain', p.strain, 100, p.strain >= 70 ? 'st warn' : 'st', 'Cumulative load. Reaching 100 causes an overuse (chronic) injury.')}${UI.bar('Stress', p.stress, 100, p.stress >= 60 ? 'ss warn' : 'ss', 'Psychological risk factor. ≥60 raises injury likelihood.')}</div>
-      <div class="bc-hist"><b>Injury history</b>${masked.L ? '<ul><li class="mask">? — scout Lifetime history</li></ul>' : `<ul>${hist}</ul>`}
-        ${p.injury && p.injury.weeks > 0 ? `<div class="cur-inj">OUT: ${esc(VB.INJURIES[p.injury.type].name)} — ${p.injury.nonlinear ? 'recovery not linear (?)' : p.injury.weeks + ' wk'} · rehab ${p.injury.rehab}/2</div>` : ''}</div>
-      ${opts.noRisk ? '' : UI.riskPanel(p, state, opp, role)}
-    </div>`;
-    const beh = VB.behaviours(p).map((b) => {
-      const hide = (b.trait === 'MT' && masked.S) || (b.trait !== 'MT' && masked[b.trait]);
-      return `<div class="beh ${b.bad ? 'bad' : ''}"><span class="bt-t" style="color:${UI.TRAIT_COLORS[b.trait]}">${b.trait}</span><span class="bt-l">${b.label}</span><span class="bt-bar"><i style="width:${hide ? 0 : b.pct}%;background:${UI.TRAIT_COLORS[b.trait]}"></i></span><b>${hide ? '?' : b.pct + '%'}</b></div>`;
-    }).join('');
-    const tp = Object.entries(p.traitProgress).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}/3`).join(' · ');
-    const back = `<div class="bc-face back">
-      <div class="bc-head"><div class="bc-num">${p.num}</div><div><div class="bc-name">${esc(p.name)}</div><div class="bc-sub">Mental profile</div></div></div>
-      <div class="sect"><b>Mental toughness — the 4Cs</b>
-        ${['control', 'commitment', 'challenge', 'confidence'].map((k) => UI.bar(k[0].toUpperCase() + k.slice(1), masked.S ? 0 : p.mt[k], 10, 'mt', VB.CONCEPTS.fourCs.text)).join('')}
-        ${UI.bar('Self-compassion', masked.S ? 0 : p.sc, 10, 'sc', VB.CONCEPTS.self_compassion.text)}
-      </div>
-      <div class="sect"><b>Personality → behaviour likelihood</b><small class="muted"> traits make behaviour likely, not certain</small>${beh}</div>
-      ${tp ? `<div class="sect"><b>Trait challenges in progress</b><div class="muted">${tp}</div></div>` : ''}
-      ${p.note ? `<div class="note">“${esc(p.note)}”</div>` : ''}
-    </div>`;
-    return `<div class="bigcard ${opts.flipped ? 'flipped' : ''}"><div class="bc-inner">${front}${back}</div></div>`;
-  };
-
-  // ---------- Training card ----------
-  UI.KIND_LABEL = { physical: 'PHYSICAL', psych: 'PSYCH · PST', recovery: 'RECOVERY', rehab: 'REHAB', trait: 'PERSONALITY' };
-  UI.trainingCard = function (key, idx, state, selected) {
-    const c = VB.CARDS[key];
-    const con = VB.CONCEPTS[c.concept];
-    const afford = state.focus >= c.cost;
-    return `<div class="tcard kind-${c.kind} ${selected ? 'selected' : ''} ${afford ? '' : 'cant'}" data-idx="${idx}">
-      <div class="tc-cost">${c.cost}</div><div class="tc-kind">${UI.KIND_LABEL[c.kind]}${c.target === 'team' ? ' · TEAM' : ''}</div>
-      <div class="tc-name">${esc(c.name)}</div><div class="tc-desc">${esc(c.desc)}</div>
-      <div class="tc-con">${con.ref} · ${esc(con.name)}</div></div>`;
-  };
-
-  // ---------- Synergy panel ----------
-  UI.synergyPanel = function (state) {
-    const syn = state.synergy;
-    const bars = ['O', 'C', 'E', 'A', 'N'].map((k) => `<div class="tb"><span style="color:${UI.TRAIT_COLORS[k]}">${k}</span><span class="tb-t"><i style="height:${syn.avg[k] * 10}%;background:${UI.TRAIT_COLORS[k]}"></i></span><b>${r1(syn.avg[k])}</b></div>`).join('');
-    const auras = syn.auras.length ? syn.auras.map((a) => `<div class="aura ${a.good ? 'good' : 'bad'}"><b>${a.good ? '▲' : '▼'} ${esc(a.name)}</b><span>${esc(a.desc)}</span><small>${VB.CONCEPTS[a.concept].ref}</small></div>`).join('') : '<div class="muted">No team auras. Your starting nine is a mixed bag — no trait is high or low enough across the team.</div>';
-    const links = syn.links.map((l) => `<div class="link-row ${l.type}"><i></i>${esc(l.label)}</div>`).join('');
-    return `<div class="synergy">
-      <div class="syn-head"><h3>TEAM CHEMISTRY</h3><div class="chem ${syn.chem >= 0 ? 'pos' : 'neg'}">${syn.chem >= 0 ? '+' : ''}${syn.chem}</div></div>
-      <div class="muted small">Averages of your starting nine. Team mixes create auras; neighbours on the board form links.</div>
-      <div class="traitbars">${bars}</div>
-      <h4>Auras</h4>${auras}
-      ${links ? `<h4>Board links</h4>${links}` : ''}
-      <div class="muted small" style="margin-top:8px">Tip: drag cards to rearrange. Neighbours matter.</div>
-    </div>`;
-  };
-
-  // ---------- Top bar ----------
-  UI.topbar = function (state, extra) {
-    const opp = VB.currentOpponent(state);
-    const rec = state.record[state.season];
-    const out = VB.outCount(state);
-    const sched = state.phase === 'camp' ? 'SUMMER CAMP' : state.week > VB.weeksInSeason(state) || state.phase === 'offseason' ? `OFFSEASON ${state.season}→${state.season + 1}` : `SEASON ${state.season} · WEEK ${state.week}/${VB.weeksInSeason(state)}`;
-    const dots = Array.from({ length: state.focusMax }, (_, i) => `<i class="${i < state.focus ? 'on' : ''}"></i>`).join('');
-    return `<div class="tb-left"><span class="logo">VAULTBALL</span><span class="sched">${sched}</span><span class="rec">${rec.w}–${rec.l}</span></div>
-      <div class="tb-mid">${opp && state.phase !== 'camp' ? `<span class="vs">vs</span> <b style="color:#${opp.color.toString(16).padStart(6, '0')}">${esc(opp.name)}</b> <span class="chip ${VB.SURFACES[opp.surface].artificial ? 'warn' : ''}" data-tip="${esc(VB.SURFACES[opp.surface].desc)}">${VB.SURFACES[opp.surface].name}</span>${opp.aggressive ? '<span class="chip warn" data-tip="Aggressive opponent: severity +1">Aggressive</span>' : ''}<span class="chip">${opp.home ? 'Home' : 'Away'}</span><span class="chip">Rating ${opp.rating}</span>` : ''}</div>
-      <div class="tb-right">${extra || ''}<span class="focus" data-tip="Focus: coach time to spend on training cards each week">FOCUS <span class="dots">${dots}</span></span>
-      <span class="outc ${out >= 2 ? 'danger' : out ? 'warn' : ''}" data-tip="Players currently injured. 3 at once = the team collapses.">OUT ${out}/3</span>
-      <button class="btn ghost small" id="btn-notebook" data-act="notebook">📓 Notebook <span class="nb-count">${state.notebook.length}</span></button></div>`;
-  };
-
-  // ---------- Notebook ----------
-  UI.notebook = function (state) {
-    const all = Object.keys(VB.CONCEPTS);
-    const groups = { 'C.1.1 Personality': [], 'C.1.2 Mental toughness': [], 'B.3 Injury': [] };
-    all.forEach((k) => { const c = VB.CONCEPTS[k]; const g = c.ref.startsWith('C.1.1') ? 'C.1.1 Personality' : c.ref.startsWith('C.1.2') ? 'C.1.2 Mental toughness' : 'B.3 Injury'; groups[g].push(k); });
-    let h = `<div class="nb-wrap"><div class="nb-head"><h2>COACH'S NOTEBOOK</h2><span>${state.notebook.length}/${all.length} discovered</span><button class="btn ghost" id="nb-close" data-act="nb-close">Close ✕</button></div><div class="nb-cols">`;
-    Object.entries(groups).forEach(([g, ks]) => {
-      h += `<div class="nb-col"><h3>${g}</h3>`;
-      ks.forEach((k) => { const c = VB.CONCEPTS[k]; const got = state.notebook.includes(k); h += `<div class="nb-item ${got ? '' : 'locked'}"><b>${got ? esc(c.name) : '???'}</b><span>${got ? esc(c.text) : 'Not discovered yet. Keep coaching.'}</span></div>`; });
-      h += '</div>';
-    });
-    return h + '</div></div>';
-  };
-
-  // ---------- Toasts / tooltip / modal / dialog ----------
-  UI.toast = function (html, cls, ms) {
-    const t = document.createElement('div');
-    t.className = 'toast ' + (cls || '');
-    t.innerHTML = html;
-    $('#toasts').appendChild(t);
-    setTimeout(() => t.classList.add('show'), 10);
-    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, ms || 4200);
-  };
-  UI.modal = function (html, cls) {
-    const m = $('#modal'); m.className = 'modal ' + (cls || ''); m.innerHTML = `<div class="modal-box">${html}</div>`;
-    return m;
-  };
-  UI.closeModal = function () { const m = $('#modal'); m.className = 'hidden'; m.innerHTML = ''; };
-
-  UI.say = function (lines) {
-    lines = Array.isArray(lines) ? lines : [lines];
-    const d = $('#dialog'), tx = $('.dlg-text', d);
-    return new Promise((res) => {
-      let i = 0, typing = null;
-      const show = () => {
-        const full = lines[i]; let n = 0; tx.textContent = '';
-        VB.Arena.speak && VB.Arena.speak(true);
-        clearInterval(typing);
-        typing = setInterval(() => { n += 2; tx.textContent = full.slice(0, n); if (n >= full.length) { clearInterval(typing); typing = null; VB.Arena.speak && VB.Arena.speak(false); } }, 18);
-      };
-      const next = () => {
-        if (typing) { clearInterval(typing); typing = null; tx.textContent = lines[i]; VB.Arena.speak && VB.Arena.speak(false); return; }
-        i++;
-        if (i >= lines.length) { d.classList.add('hidden'); d.removeEventListener('click', next); VB.Arena.speak && VB.Arena.speak(false); res(); return; }
+  const UI = {
+    $, esc,
+    sprite(p, opts) { return VB.spriteSVG(p, Object.assign({ num: p.num }, opts || {})); },
+    riskChip(r) {
+      const lab = r.cat === 'out' ? 'OUT' : r.cat.toUpperCase() + ' RISK';
+      const col = r.cat === 'out' ? '#8a8fa8' : VB.RISK_COLORS[r.cat];
+      return `<span class="rchip" style="--c:${col}">${lab}</span>`;
+    },
+    b5Bars(p, opts) {
+      opts = opts || {};
+      const keys = ['O', 'C', 'E', 'A', 'N'];
+      const vals = opts.vals || p.b5;
+      return `<div class="b5">${keys.map((k) => {
+        const v = vals[k];
+        const hidden = v == null;
+        return `<button class="b5row" data-act="trait" data-t="${k}" data-pid="${p.id}" title="What is ${VB.B5INFO[k].name}?">
+          <span class="b5k" style="color:${VB.B5INFO[k].color}">${k}</span><span class="b5n">${VB.B5INFO[k].name}</span>
+          <span class="b5bar"><i style="width:${hidden ? 0 : v * 10}%;background:${VB.B5INFO[k].color}"></i></span><span class="b5v">${hidden ? '?' : v}</span><span class="b5i">ⓘ</span></button>`;
+      }).join('')}</div>`;
+    },
+    traitDialog(p, k) {
+      const I = VB.B5INFO[k], v = p.b5[k];
+      const known = !p.known || p.known.all || p.known.O;
+      return `<div class="tdlg">
+        <div class="tdhead" style="--c:${I.color}"><span class="tdk">${k}</span><div><h3>${I.name}</h3><div class="tddesc">${I.desc.map((d) => `<span>${d}</span>`).join('')}</div></div><button class="x" data-act="close-modal">✕</button></div>
+        <p class="tddef">${I.def}</p>
+        <div class="tdgrid"><div class="hi"><b>High</b><p>${I.high}</p></div><div class="lo"><b>Low</b><p>${I.low}</p></div></div>
+        <p class="tdsport"><b>In sport:</b> ${I.sport}</p>
+        ${known ? `<div class="tdplayer"><div class="tdspr">${UI.sprite(p, { bust: true })}</div><div><b>${esc(p.name)}: ${v}/10</b><div class="tdscale"><i style="left:${(v - 1) * 11.1}%"></i></div><p>${I.effect(v)}</p></div></div>` : ''}
+        <p class="tdlook">${I.look}</p>
+        <p class="tdnote">Big Five traits are relatively stable patterns, so they make behaviour <i>likely</i>, not certain (traits vs states). They can shift slowly when a person repeatedly completes trait-typical challenges.</p>
+      </div>`;
+    },
+    modal(html, cls) {
+      const m = $('#modal');
+      m.innerHTML = `<div class="mbox ${cls || ''}">${html}</div>`;
+      m.classList.add('on');
+    },
+    closeModal() { const m = $('#modal'); m.classList.remove('on'); m.innerHTML = ''; },
+    toast(text, tone) {
+      const t = document.createElement('div');
+      t.className = 'toast ' + (tone || '');
+      t.textContent = text;
+      $('#toasts').appendChild(t);
+      setTimeout(() => t.classList.add('out'), 3200);
+      setTimeout(() => t.remove(), 3800);
+    },
+    say(lines) {
+      // Commissioner dialog with typewriter; resolves when clicked through
+      const d = $('#dialog');
+      return new Promise((resolve) => {
+        let i = 0, typing = null, full = '';
+        const show = () => {
+          full = lines[i]; let n = 0;
+          d.innerHTML = `<div class="who">THE COMMISSIONER</div><div class="txt"></div><div class="more">click ▸</div>`;
+          const tx = d.querySelector('.txt');
+          clearInterval(typing);
+          typing = setInterval(() => { n += 2; tx.textContent = full.slice(0, n); if (n >= full.length) { clearInterval(typing); typing = null; } }, 18);
+          VB.Arena && VB.Arena.speak && VB.Arena.speak(true);
+        };
+        const next = () => {
+          if (typing) { clearInterval(typing); typing = null; d.querySelector('.txt').textContent = full; return; }
+          i++;
+          if (i >= lines.length) { d.classList.remove('on'); d.removeEventListener('click', next); VB.Arena && VB.Arena.speak && VB.Arena.speak(false); resolve(); return; }
+          show();
+        };
+        d.classList.add('on');
+        d.addEventListener('click', next);
         show();
-      };
-      d.classList.remove('hidden');
-      d.addEventListener('click', next);
-      show();
-    });
+      });
+    },
   };
-
-  // Global hover tooltips for [data-tip]
-  UI.initTooltips = function () {
-    const tip = $('#tooltip');
-    document.addEventListener('mouseover', (e) => {
-      const el = e.target.closest('[data-tip]');
-      if (!el) { tip.classList.add('hidden'); return; }
-      tip.innerHTML = esc(el.getAttribute('data-tip'));
-      tip.classList.remove('hidden');
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (tip.classList.contains('hidden')) return;
-      const x = Math.min(window.innerWidth - tip.offsetWidth - 10, e.clientX + 14);
-      const y = Math.min(window.innerHeight - tip.offsetHeight - 10, e.clientY + 16);
-      tip.style.left = x + 'px'; tip.style.top = y + 'px';
-    });
-  };
+  VB.UI = UI;
 })();

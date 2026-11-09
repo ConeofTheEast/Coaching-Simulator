@@ -2,388 +2,344 @@
 (function () {
   const VB = globalThis.VB, UI = VB.UI, $ = UI.$, esc = UI.esc;
   let S = null;
-  const U = { view: 'title', sel: null, card: null, flip: false, tab: 'player', speed: 1, swapFrom: null, mkSel: null, relSel: null, busy: false };
+  const U = { sel: null, swapFrom: null, busy: false, mkSel: null, relSel: null };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const ORDER_KEYS = ['sht', 'pas', 'def', 'rest', 'rehab', 'mental'];
 
-  const CARD_HINTS = {
-    prehab: 'Best on players with likelihood ≥3, old injuries, or age 31+.',
-    team_prehab: 'Prehab lowers likelihood for the whole squad.',
-    strength: 'Best on fresh players (fatigue < 50, strain < 70).',
-    grind: 'Only safe on fresh players. Never on perfectionists — they already do too much.',
-    recovery: 'Most useful when the squad is tired.',
-    sleep: 'Best on players with stress ≥ 50.',
-    ppe: 'Most useful on high-contact positions (Strikers, Anchors).',
-    rehab: 'Always worthwhile on an injury.',
-    imagery: 'Best on players with low confidence (≤5).',
-    goals: 'Best on low-commitment players or perfectionists.',
-    selftalk: 'Best on high-Neuroticism or low-control players.',
-    arousal: 'Best when 2+ high-Neuroticism players start.',
-    mindfulness: 'Best for anxious teams (high average N, Powder Keg).',
-    selfcomp: 'Best on players with low self-compassion or hidden pain.',
-    adversity: 'Best when the team\'s Challenge score is low.',
-    bonding: 'Best when chemistry is low.',
-    comfort: 'Best on a player with a clearly limiting trait.',
+  // ======================================================================
+  // SAVE CODES
+  const b64u = (bytes) => { let s = ''; bytes.forEach((b) => (s += String.fromCharCode(b))); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const unb64u = (str) => { str = str.replace(/-/g, '+').replace(/_/g, '/'); while (str.length % 4) str += '='; const s = atob(str); const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; };
+  async function pipe(bytes, stream) { const r = new Response(new Blob([bytes]).stream().pipeThrough(stream)); return new Uint8Array(await r.arrayBuffer()); }
+  VB.Save = {
+    snapshot(state) {
+      const o = Object.assign({}, state);
+      delete o.synergy; delete o.toasts; delete o.newConcepts;
+      o.log = (o.log || []).slice(-25);
+      if (!o.market || !o.market.length) delete o.market;
+      return JSON.stringify(o, (k, v) => (typeof v === 'number' && !Number.isInteger(v) ? Math.round(v * 10) / 10 : v));
+    },
+    async encode(state) {
+      const json = this.snapshot(state);
+      const bytes = new TextEncoder().encode(json);
+      if (typeof CompressionStream !== 'undefined') { try { return 'VB2.' + b64u(await pipe(bytes, new CompressionStream('deflate-raw'))); } catch (e) { /* fall through */ } }
+      return 'VB2J.' + b64u(bytes);
+    },
+    async decode(code) {
+      code = (code || '').trim().replace(/\s+/g, '');
+      let json;
+      if (code.startsWith('VB2.')) json = new TextDecoder().decode(await pipe(unb64u(code.slice(4)), new DecompressionStream('deflate-raw')));
+      else if (code.startsWith('VB2J.')) json = new TextDecoder().decode(unb64u(code.slice(5)));
+      else throw new Error('Not a Vaultball save code');
+      const st = JSON.parse(json);
+      st.toasts = []; st.newConcepts = []; st.market = st.market || [];
+      let max = 0; st.roster.concat(st.market).forEach((p) => { const n = parseInt(String(p.id).slice(1), 10); if (n > max) max = n; });
+      VB.setIdCounter(max + 1);
+      VB.seed(Date.now());
+      st.synergy = VB.computeSynergy(st);
+      VB.qInit(st);
+      return st;
+    },
   };
+  async function autosave() { if (!S || S.over) return; try { localStorage.setItem('vb_autosave', await VB.Save.encode(S)); } catch (e) { /* storage blocked */ } }
 
   // ======================================================================
   function boot() {
-    UI.initTooltips();
-    try { VB.Arena.init(document.getElementById('arena')); VB.Arena.setMode && VB.Arena.setMode('title'); } catch (e) { console.warn(e); }
-    document.getElementById('screen').addEventListener('click', onClick);
-    document.getElementById('topbar').addEventListener('click', onClick);
-    document.getElementById('modal').addEventListener('click', onClick);
-    document.getElementById('notebook').addEventListener('click', onClick);
-    setupDrag();
+    try { VB.Arena.init(document.getElementById('arena')); VB.Arena.setMode('title'); } catch (e) { console.warn(e); }
+    ['#screen', '#topbar', '#modal'].forEach((s) => $(s).addEventListener('click', onClick));
+    $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && $('#modal').dataset.dismiss === '1') UI.closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#modal').dataset.dismiss === '1') UI.closeModal(); });
     titleScreen();
   }
-
-  function setView(v) { U.view = v; document.body.dataset.view = v; }
+  function setView(v) { document.body.dataset.view = v; }
   function screen(html) { $('#screen').innerHTML = html; }
-
-  function flush() {
-    if (!S) return;
-    S.newConcepts.forEach((c) => UI.toast(`📓 New in Notebook: <b>${esc(VB.CONCEPTS[c].name)}</b><small>${VB.CONCEPTS[c].ref}</small>`, 'concept', 3600));
+  function modal(html, cls, dismiss) { UI.modal(html, cls); $('#modal').dataset.dismiss = dismiss ? '1' : '0'; }
+  function flushConcepts() {
+    (S.newConcepts || []).forEach((c) => { const k = VB.CONCEPTS[c]; if (k) UI.toast(`📓 New concept: ${k.ref} ${k.name}`, 'concept'); });
     S.newConcepts = [];
-    S.toasts.forEach((t) => UI.toast(`✦ ${esc(t.text)}`, 'trait', 5200));
-    S.toasts = [];
+    (S.toasts || []).forEach((t) => UI.toast(t.text, 'trait')); S.toasts = [];
   }
 
-  // ======================================================================
   function titleScreen() {
-    setView('title');
-    $('#topbar').classList.add('hidden');
+    setView('title'); $('#topbar').classList.add('hidden');
     VB.Arena.setMode && VB.Arena.setMode('title');
-    screen(`<div class="title-wrap">
-      <div class="title-logo">VAULT<span>BALL</span></div>
-      <div class="title-sub">THE COACH'S TABLE</div>
-      <div class="title-tag">A roguelike coaching game · SEHS C.1 Personality &amp; Mental toughness · B.3 Injury</div>
-      <div class="title-btns"><button class="btn primary big" data-act="new">Begin a new run</button>
-      <button class="btn ghost" data-act="how">How to play</button></div>
-      <div class="title-foot">About 20–30 minutes · two seasons · 12 players · one rival</div>
+    let has = false; try { has = !!localStorage.getItem('vb_autosave'); } catch (e) { /* */ }
+    screen(`<div class="title">
+      <div class="logo"><span>VAULTBALL</span><b>COACH</b></div>
+      <p class="tag">Nine on the floor. Three on the bench. Every card is a person.</p>
+      <div class="title-btns">
+        <button class="btn primary big" data-act="new">New run</button>
+        ${has ? '<button class="btn big" data-act="continue">Continue last run</button>' : ''}
+        <button class="btn ghost" data-act="code">Continue with a save code</button>
+        <button class="btn ghost" data-act="how">How to play</button>
+      </div>
+      <p class="foot">IB SEHS · C.1 Personality & mental toughness · B.3 Injury · IB command terms</p>
     </div>`);
   }
   function howModal() {
-    UI.modal(`<h2>HOW TO PLAY</h2><ol class="how">
-      <li><b>Your 12 cards are people.</b> 9 start: <em>Strikers</em> score, <em>Links</em> assist, <em>Anchors</em> defend. 3 sit on the bench.</li>
-      <li><b>Each week:</b> spend <em>Focus</em> on training cards, then play a match. Drag cards to change the lineup.</li>
-      <li><b>Big Five traits are multipliers.</b> They make behaviour more or less likely: sticking to training, choking late, passing. Click a player, then <em>Flip</em> to see their mental profile.</li>
-      <li><b>Every player has an injury risk</b> = likelihood × severity. Keep it <span style="color:#3ddc84">low</span> or <span style="color:#ffd23f">medium</span>. Rest tired players.</li>
-      <li><b>3 players injured at once and the team collapses.</b> Run over.</li>
-      <li><b>Two seasons.</b> In between: rehab plans, swap up to 3 players, summer camp, then swap up to 2 more.</li></ol>
-      <div class="modal-btns"><button class="btn primary" data-act="close-modal">Got it</button></div>`);
+    modal(`<div class="how"><button class="x" data-act="close-modal">✕</button><h2>How to play</h2>
+      <ol>
+        <li><b>Each week</b> give every player one order: <i>Shooting, Team, Defence drills, Rest, Rehab</i> or <i>Mental skills</i>. Conscientious players actually do them.</li>
+        <li><b>Watch the risk chip.</b> Tired, stressed, older or never-rehabbed players get hurt. Three injured at once and your run ends.</li>
+        <li><b>Click a Big Five trait</b> on any player card to learn what it means and what it does to that player.</li>
+        <li><b>Key drives:</b> each match has 5 drives you play yourself, on attack and defence. Every shot and every long, risky pass asks an <b>IB command-term</b> question. Get it right and the pass completes or the shot gets a big boost. Get it wrong and you turn the ball over.</li>
+        <li>Players who did <b>shooting drills</b> shoot better, and players who did <b>team drills</b> pass faster.</li>
+        <li>Use <b>Save code</b> any time to continue on another device.</li>
+      </ol>
+      <div class="how-keys"><div><b>Laptop</b> WASD/arrows move · Space pass/steal · click a teammate to pass to them · E shoot/switch · 1–4 answer</div><div><b>Touch</b> on-screen stick + buttons (switches on automatically)</div></div>
+      <div class="modal-btns"><button class="btn primary" data-act="close-modal">Got it</button></div></div>`, 'how-modal', true);
+  }
+  function codeModal() {
+    modal(`<div class="savebox"><button class="x" data-act="close-modal">✕</button><h2>Continue with a save code</h2>
+      <p class="muted">Paste the code you saved earlier.</p><textarea id="codein" rows="5" placeholder="VB2.…"></textarea>
+      <div class="err" id="codeerr"></div><div class="modal-btns"><button class="btn primary" data-act="load-code">Load run ▸</button></div></div>`, 'save-modal', true);
+  }
+  async function showSave() {
+    const code = await VB.Save.encode(S);
+    modal(`<div class="savebox"><button class="x" data-act="close-modal">✕</button><h2>Save code</h2>
+      <p class="muted">Copy this code somewhere safe (notes, email, Google Classroom). Paste it on the title screen to continue on any device. It restores the whole run, including your command-term progress.</p>
+      <textarea id="codeout" rows="6" readonly>${code}</textarea>
+      <div class="modal-btns"><button class="btn primary" data-act="copy-code">Copy code</button><button class="btn ghost" data-act="close-modal">Close</button></div></div>`, 'save-modal', true);
   }
 
-  async function startRun() {
-    S = VB.newState((Date.now() % 1e9) | 0);
-    S.deck = VB.buildDeck();
-    VB.Arena.setMode && VB.Arena.setMode('table');
-    screen('');
-    await UI.say(VB.COMMISSIONER.intro);
+  async function startRun(state) {
+    S = state || VB.newState(Date.now() % 1e9);
+    VB.qInit(S);
+    S.metrics.orders = S.metrics.orders || { good: 0, total: 0 };
+    $('#topbar').classList.remove('hidden');
+    if (!state) { await UI.say(VB.COMMISSIONER.intro); }
+    if (S.phase === 'camp') return renderCamp();
+    if (S.phase === 'market') return openMarket(S.mk.n, S.mk.label, S.mk.tier, S.mk.then, true);
     startWeek();
   }
 
   // ======================================================================
-  // TRAINING HUB
+  // HUB
   function startWeek() {
-    S.focus = S.focusMax;
-    S.roster.forEach((p) => { if (!VB.isOut(p) && VB.hidesPain(p) && p.strain >= 65) p.niggle = true; });
-    VB.autoFixLineup(S).forEach((m) => UI.toast(`↺ ${esc(m)} (injury)`, 'info'));
-    VB.drawHand(S, S.phase === 'camp' ? 6 : 5);
-    S.synergy = VB.computeSynergy(S);
-    U.sel = null; U.card = null; U.flip = false; U.swapFrom = null;
     setView('hub');
-    VB.Arena.setMode && VB.Arena.setMode('table');
-    syncArenaLineup();
+    VB.Arena.setMode && VB.Arena.setMode('title');
+    S.phase = 'training';
+    // injured players default to rehab; fix the lineup
+    S.roster.forEach((p) => { if (VB.isOut(p) && p.order !== 'rest') p.order = 'rehab'; });
+    const moves = VB.autoFixLineup(S);
+    moves.forEach((m) => UI.toast('↺ ' + m, 'info'));
+    S.synergy = VB.computeSynergy(S);
+    if (!U.sel || !VB.byId(S, U.sel)) U.sel = S.lineup[0][0];
     renderHub();
-    flush();
+    flushConcepts();
+    autosave();
+  }
+  function topbar(extra) {
+    const opp = S.phase === 'training' ? VB.currentOpponent(S) : null;
+    const rec = S.record[S.season];
+    $('#topbar').innerHTML = `<div class="brand">VAULTBALL<b>COACH</b></div>
+      <div class="tb-mid"><span class="chip">${S.phase === 'camp' ? 'SUMMER CAMP' : S.phase === 'market' ? 'OFFSEASON' : `S${S.season} · WEEK ${S.week}/${VB.weeksInSeason(S)}`}</span>
+      <span class="chip">${rec.w}–${rec.l}</span>
+      ${opp ? `<span class="chip opp" style="--c:#${opp.color.toString(16).padStart(6, '0')}">NEXT: <b>${esc(opp.name)}</b> <small>${opp.rating} · ${VB.SURFACES[opp.surface].name}${opp.aggressive ? ' · aggressive' : ''}</small></span>` : ''}${extra || ''}</div>
+      <div class="tb-btns"><button class="btn ghost small" data-act="notebook">📓 <span class="hide-sm">Notebook</span></button><button class="btn ghost small" data-act="save">💾 <span class="hide-sm">Save code</span></button><button class="btn ghost small" data-act="how">?</button></div>`;
   }
 
-  function syncArenaLineup() {
-    if (!VB.Arena.ok) return;
-    const grid = S.lineup.map((row) => row.map((id) => { const p = VB.byId(S, id); return p && !VB.isOut(p) ? p : null; }));
-    const opp = VB.currentOpponent(S);
-    VB.Arena.setTeams(opp ? opp.color : 0xff3b6b, grid);
+  function tile(id, where) {
+    const p = VB.byId(S, id);
+    if (!p) return `<div class="tile empty" data-act="sel-empty" data-where="${where}">empty</div>`;
+    const r = VB.simpleRisk(S, p);
+    const o = VB.ORDERS[p.order] || VB.ORDERS.pas;
+    const col = r.cat === 'out' ? '#8a8fa8' : VB.RISK_COLORS[r.cat];
+    return `<div class="tile ${U.sel === id ? 'sel' : ''} ${U.swapFrom === id ? 'swapping' : ''} ${VB.isOut(p) ? 'out' : ''}" data-act="sel" data-id="${id}" data-where="${where}">
+      <div class="tspr">${UI.sprite(p, { bust: true, hurt: VB.isOut(p) })}</div>
+      <div class="tinfo"><b><span class="num">${p.num}</span>${esc(p.name.split(' ')[0])} <span class="sur">${esc(p.name.split(' ').slice(1).join(' '))}</span></b>
+        <small>${p.role} · OVR ${VB.ovr(p)} · ${p.age}y</small>
+        <div class="tmeta"><span class="rdot" style="--c:${col}" title="${r.cat} risk"></span><span class="ord" title="${o.name}">${o.icon} ${o.short}</span>${formPips(p)}</div></div></div>`;
   }
-
-  function previewFor(p) {
-    if (U.card === null) return null;
-    const key = S.hand[U.card]; const c = VB.CARDS[key];
-    if (!c || c.target !== 'player') return null;
-    if (VB.isOut(p) && !c.rehab && key !== 'sleep' && key !== 'selfcomp') return { cls: 'no', text: 'injured' };
-    const ct = c.canTarget ? c.canTarget(p, S) : true;
-    if (ct !== true) return { cls: 'no', text: ct };
-    if (key === 'sleep' || key === 'ppe') return { cls: 'yes', text: '✓ automatic' };
-    const a = VB.adherence(p, c, S);
-    let t = a.outcome === 'full' ? `✓ completes (${a.score})` : a.outcome === 'partial' ? `◐ half (${a.score})` : `✗ skips (${a.score})`;
-    if (key === 'comfort') t += `<br><small>${esc(VB.challengeTrait(p).task)}</small>`;
-    return { cls: a.outcome === 'full' ? 'yes' : a.outcome === 'partial' ? 'half' : 'no', text: t };
+  function formPips(p) {
+    const f = p.form || {}; const k = ['sht', 'pas', 'def'].find((x) => f[x] > 0);
+    return k ? `<span class="form" title="Drill form: ${VB.ORDERS[k].name}">${VB.ORDERS[k].icon.repeat(f[k])}</span>` : '';
   }
 
   function renderHub() {
-    const camp = S.phase === 'camp';
-    $('#topbar').classList.remove('hidden');
-    $('#topbar').innerHTML = UI.topbar(S);
-    const opp = camp ? null : VB.currentOpponent(S);
-    const labels = ['STRIKERS', 'LINKS', 'ANCHORS'];
-    let board = '';
-    for (let r = 0; r < 3; r++) {
-      board += `<div class="row-label" data-tip="${esc(VB.ROLES[VB.ROW_ROLE[r]].desc)}">${labels[r]}</div>`;
-      for (let l = 0; l < 3; l++) {
-        const p = VB.byId(S, S.lineup[r][l]);
-        const pv = p ? previewFor(p) : null;
-        board += `<div class="slot" data-r="${r}" data-l="${l}">${p ? UI.miniCard(p, S, { opp, slotRole: VB.ROW_ROLE[r], selected: U.sel === p.id || U.swapFrom === p.id, preview: pv, target: pv ? (pv.cls === 'no' ? 'invalid' : 'valid') : '' }) : '<div class="empty">empty</div>'}</div>`;
-      }
-    }
-    let bench = '';
-    S.bench.forEach((id, i) => {
-      const p = VB.byId(S, id); const pv = p ? previewFor(p) : null;
-      bench += `<div class="bslot" data-b="${i}">${p ? UI.miniCard(p, S, { opp, selected: U.sel === p.id || U.swapFrom === p.id, preview: pv, target: pv ? (pv.cls === 'no' ? 'invalid' : 'valid') : '' }) : '<div class="empty">empty</div>'}</div>`;
-    });
-    const hand = S.hand.map((k, i) => UI.trainingCard(k, i, S, U.card === i)).join('');
-    let handInfo = '<div class="muted">Pick a training card, then a player. Unused Focus is lost at the end of the week.</div>';
-    if (U.card !== null) {
-      const c = VB.CARDS[S.hand[U.card]];
-      handInfo = `<div><b>${esc(c.name)}</b> — ${c.target === 'team' ? 'applies to the whole squad.' : 'now click a player.'}</div><div class="hint">💡 ${esc(CARD_HINTS[S.hand[U.card]] || '')}</div>
-        ${c.target === 'team' ? `<button class="btn primary" data-act="play-team">Play on squad (${c.cost} Focus)</button>` : ''}<button class="btn ghost small" data-act="cancel-card">Cancel</button>`;
-    }
-    const side = U.tab === 'team' || !U.sel ? UI.synergyPanel(S) : detailPanel(VB.byId(S, U.sel), opp);
+    topbar();
+    const rows = ['Strikers', 'Links', 'Anchors'].map((lab, r) => `<div class="row"><div class="row-lab">${lab}<small>${['Score. High contact.', 'Pass & create.', 'Defend. High contact.'][r]}</small></div><div class="slots">${[0, 1, 2].map((l) => tile(S.lineup[r][l], r + ',' + l)).join('')}</div></div>`).join('');
+    const bench = `<div class="row bench"><div class="row-lab">Bench<small>Subs in if a starter is hurt.</small></div><div class="slots">${[0, 1, 2].map((b) => tile(S.bench[b], 'b' + b)).join('')}</div></div>`;
+    const syn = S.synergy;
+    const auras = syn.auras.map((a) => `<span class="aura ${a.good ? 'good' : 'bad'}" data-act="aura" data-a="${a.id}" title="${esc(a.desc)}">${a.good ? '▲' : '▼'} ${esc(a.name)}</span>`).join('') || '<span class="muted small">No team auras: the personality mix is balanced.</span>';
+    const p = VB.byId(S, U.sel);
+    const outN = VB.outCount(S);
     screen(`<div class="hub">
-      <section class="board-wrap">
-        <div class="board-3d"><div class="board" id="board">${board}<svg id="links"></svg></div>
-        <div class="bench-row"><div class="row-label">BENCH</div>${bench}</div></div>
+      <section class="squad">
+        <div class="squad-head"><h2>Your squad</h2><span class="muted small">${U.swapFrom ? 'Click another player to swap positions · <a data-act="swap-cancel">cancel</a>' : 'Click a player to see their card and set their weekly order.'}</span></div>
+        ${rows}${bench}
+        <div class="auras"><b>Team auras</b> ${auras}<span class="chem">Chemistry ${syn.chem >= 0 ? '+' : ''}${syn.chem}</span></div>
       </section>
-      <aside class="side"><div class="tabs"><button class="tab ${U.tab === 'player' && U.sel ? 'on' : ''}" data-act="tab-player">Player</button><button class="tab ${U.tab === 'team' || !U.sel ? 'on' : ''}" data-act="tab-team">Team synergy</button></div>
-        <div class="side-body">${side}</div></aside>
-      <footer class="hand-wrap"><div class="hand">${hand || '<div class="muted">No cards left this week.</div>'}</div>
-        <div class="hand-info">${handInfo}</div>
-        <button class="btn primary go" data-act="go">${camp ? 'End summer camp ▶' : 'To the match ▶'}</button></footer>
+      <section class="detail" id="detail">${p ? card(p) : ''}</section>
+    </div>
+    <div class="hubbar">
+      <div class="quick"><span class="small muted">Set all healthy players:</span>${ORDER_KEYS.filter((k) => k !== 'rehab').map((k) => `<button class="btn tiny ghost" data-act="all-order" data-o="${k}" title="${VB.ORDERS[k].name}">${VB.ORDERS[k].icon} ${VB.ORDERS[k].short}</button>`).join('')}</div>
+      ${outN ? `<span class="warnchip">${outN} injured${outN >= 2 ? ': one more and you are at the limit!' : ''}</span>` : ''}
+      <button class="btn primary big" data-act="to-match">Train & play ▸</button>
     </div>`);
-    requestAnimationFrame(drawLinks);
   }
 
-  function detailPanel(p, opp) {
-    if (!p) return UI.synergyPanel(S);
+  function card(p) {
+    const r = VB.simpleRisk(S, p);
     const pos = VB.findSlot(S, p.id);
-    const role = pos && pos.row >= 0 ? VB.ROW_ROLE[pos.row] : p.role;
-    return `${UI.bigCard(p, S, { opp, slotRole: role, flipped: U.flip })}
-      <div class="detail-actions">
-        <button class="btn ghost small" data-act="flip">↻ Flip card</button>
-        ${VB.isOut(p) ? '' : `<button class="btn ${p.rest ? 'primary' : 'ghost'} small" data-act="rest" data-tip="Rest: skip standard practice this week. Fatigue −30, Strain −12. Still plays the match.">${p.rest ? '✓ Resting' : 'Rest this week'}</button>`}
-        <button class="btn ghost small" data-act="swap" data-tip="Or drag a card onto another slot">${U.swapFrom === p.id ? 'Click a slot…' : '⇄ Move'}</button>
-      </div>`;
+    const where = pos ? (pos.row >= 0 ? `${['Striker', 'Link', 'Anchor'][pos.row]} · ${VB.LANES[pos.lane]} lane` : 'Bench') : '';
+    const hist = p.history.length ? p.history.map((h) => `<li class="${h.cleared ? 'ok' : 'warn'}">${esc(VB.INJURIES[h.type].name)} <small>${h.cleared ? '✓ rehabbed' : `not fully rehabbed${h.rehab ? ` (${h.rehab}/2)` : ''}`}</small></li>`).join('') : '<li class="muted">No previous injuries</li>';
+    const inj = VB.isOut(p) ? `<div class="injbox">✚ <b>${esc(VB.INJURIES[p.injury.type].name)}</b> (${VB.INJURIES[p.injury.type].kind}). Out ${p.injury.weeks} more week${p.injury.weeks > 1 ? 's' : ''} · rehab ${p.injury.rehab || 0}/2</div>` : '';
+    const o = p.order || 'pas';
+    const ordBtns = ORDER_KEYS.map((k) => {
+      const dis = VB.isOut(p) && k !== 'rehab' && k !== 'rest';
+      return `<button class="obtn ${o === k ? 'on' : ''}" data-act="order" data-id="${p.id}" data-o="${k}" ${dis ? 'disabled' : ''}><i>${VB.ORDERS[k].icon}</i>${VB.ORDERS[k].short}</button>`;
+    }).join('');
+    const f = p.form || {};
+    return `<div class="pcard ${p.b5.N >= 7 ? 'nervy' : ''}">
+      <div class="pc-top">
+        <div class="pc-spr">${UI.sprite(p, { hurt: VB.isOut(p) })}</div>
+        <div class="pc-id">
+          <div class="pc-num">#${p.num}</div><h2>${esc(p.name)}</h2>
+          <div class="pc-sub">${VB.ROLES[p.role].name} · age ${p.age} · ${where}</div>
+          <div class="pc-stats"><div><b>${VB.ppg(p).toFixed(1)}</b><small>PTS/G</small></div><div><b>${VB.apg(p).toFixed(1)}</b><small>AST/G</small></div><div><b>${VB.ovr(p)}</b><small>OVR</small></div></div>
+          <div class="hp"><small>Health</small><span class="hpbar"><i style="width:${p.health}%;background:${p.health >= 70 ? '#3ddc84' : p.health >= 50 ? '#ffd23f' : '#ff3b4e'}"></i></span><b>${Math.round(p.health)}</b></div>
+          <div class="pc-risk">${UI.riskChip(r)}${r.reasons.length ? `<ul>${r.reasons.slice(0, 3).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : r.cat === 'out' ? '' : '<span class="muted small">No major risk factors</span>'}</div>
+        </div>
+      </div>
+      ${inj}
+      <div class="pc-sec"><h4>Big Five <small>tap a trait to learn more</small></h4>${UI.b5Bars(p)}</div>
+      <div class="pc-sec"><h4>Skills</h4><div class="skills">${[['sht', 'Shooting'], ['pas', 'Passing'], ['def', 'Defence'], ['fit', 'Fitness']].map(([k, n]) => `<div><small>${n}</small><span class="sbar"><i style="width:${p.sk[k]}%"></i></span><b>${Math.round(p.sk[k])}</b>${f[k] ? `<em class="formtag">${'▲'.repeat(f[k])}</em>` : ''}</div>`).join('')}</div></div>
+      <div class="pc-sec"><h4>Injury history</h4><ul class="hist">${hist}</ul></div>
+      <div class="pc-sec orders"><h4>This week's order</h4><div class="obtns">${ordBtns}</div><p class="odesc">${VB.ORDERS[o].desc}</p></div>
+      <div class="pc-actions"><button class="btn small ghost" data-act="swap" data-id="${p.id}">⇄ Move / swap position</button>${p.note ? `<span class="note">“${esc(p.note)}”</span>` : ''}</div>
+    </div>`;
   }
 
-  // Draw synergy links between neighbouring cards on the board
-  function drawLinks() {
-    const svg = $('#links'), board = $('#board');
-    if (!svg || !board) return;
-    const br = board.getBoundingClientRect();
-    const sx = board.offsetWidth / br.width || 1, sy = board.offsetHeight / br.height || 1;
-    svg.setAttribute('width', board.offsetWidth); svg.setAttribute('height', board.offsetHeight);
-    const col = { glue: '#3ddc84', clash: '#ff3b4e', nerves: '#ffb020', calm: '#7cc8ff' };
-    let h = '';
-    S.synergy.links.forEach((k) => {
-      const a = board.querySelector(`.slot[data-r="${k.a[0]}"][data-l="${k.a[1]}"]`), b = board.querySelector(`.slot[data-r="${k.b[0]}"][data-l="${k.b[1]}"]`);
-      if (!a || !b) return;
-      const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
-      const horiz = k.a[0] === k.b[0];
-      const ext = 10;
-      let x1, y1, x2, y2;
-      if (horiz) { x1 = (ra.right - br.left) * sx - ext; x2 = (rb.left - br.left) * sx + ext; y1 = y2 = (ra.top + ra.height * 0.32 - br.top) * sy; }
-      else { y1 = (ra.bottom - br.top) * sy - ext; y2 = (rb.top - br.top) * sy + ext; x1 = x2 = (ra.left + ra.width * 0.5 - br.left) * sx; }
-      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-      const icon = { glue: '+', clash: '×', nerves: '!', calm: '~' }[k.type];
-      h += `<g><title>${esc(k.label)}</title><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col[k.type]}" stroke-width="6" stroke-linecap="round" opacity="0.95"/>
-        <circle cx="${mx}" cy="${my}" r="9" fill="#05060f" stroke="${col[k.type]}" stroke-width="2"/><text x="${mx}" y="${my + 4}" text-anchor="middle" font-size="12" font-weight="800" fill="${col[k.type]}">${icon}</text></g>`;
-    });
-    svg.innerHTML = h;
-  }
-  window.addEventListener('resize', () => { if (U.view === 'hub') drawLinks(); });
-
-  // ---------- Lineup moves ----------
-  function placeAt(dest, id) {
-    if (dest.b !== undefined) S.bench[dest.b] = id; else S.lineup[dest.r][dest.l] = id;
-  }
-  function idAt(dest) { return dest.b !== undefined ? S.bench[dest.b] : S.lineup[dest.r][dest.l]; }
-  function movePlayer(id, dest) {
-    const p = VB.byId(S, id);
-    const src = VB.findSlot(S, id);
-    if (!p || !src) return;
-    const srcD = src.row >= 0 ? { r: src.row, l: src.lane } : { b: src.lane };
-    const other = idAt(dest);
-    if (other === id) return;
-    const op = other && VB.byId(S, other);
-    if (dest.b === undefined && VB.isOut(p)) { UI.toast(`${esc(p.name)} is injured and can't start.`, 'bad'); return; }
-    if (srcD.b === undefined && op && VB.isOut(op)) { UI.toast(`${esc(op.name)} is injured and can't start.`, 'bad'); return; }
-    placeAt(dest, id); placeAt(srcD, other || null);
-    if (srcD.b !== undefined && !other) S.bench[srcD.b] = null;
-    S.bench = S.bench.filter((x) => x !== undefined);
+  function swapPlayers(a, b) {
+    const pa = VB.findSlot(S, a), pb = VB.findSlot(S, b);
+    const put = (pos, id) => { if (pos.row >= 0) S.lineup[pos.row][pos.lane] = id; else S.bench[pos.lane] = id; };
+    put(pa, b); put(pb, a);
     S.synergy = VB.computeSynergy(S);
-    U.swapFrom = null;
-    syncArenaLineup();
-    renderHub();
-  }
-  function setupDrag() {
-    let dragId = null;
-    document.addEventListener('dragstart', (e) => {
-      const c = e.target.closest && e.target.closest('.pcard.mini');
-      if (!c || U.view !== 'hub') return;
-      dragId = c.dataset.id; e.dataTransfer.setData('text/plain', dragId); e.dataTransfer.effectAllowed = 'move';
-      c.classList.add('dragging');
-    });
-    document.addEventListener('dragend', () => { document.querySelectorAll('.dragging,.drop-over').forEach((el) => el.classList.remove('dragging', 'drop-over')); });
-    document.addEventListener('dragover', (e) => {
-      const s = e.target.closest && e.target.closest('.slot,.bslot');
-      if (!s || !dragId) return; e.preventDefault();
-      document.querySelectorAll('.drop-over').forEach((el) => el.classList.remove('drop-over')); s.classList.add('drop-over');
-    });
-    document.addEventListener('drop', (e) => {
-      const s = e.target.closest && e.target.closest('.slot,.bslot');
-      if (!s || !dragId) return; e.preventDefault();
-      const dest = s.classList.contains('bslot') ? { b: +s.dataset.b } : { r: +s.dataset.r, l: +s.dataset.l };
-      const id = dragId; dragId = null;
-      movePlayer(id, dest);
-    });
-  }
-
-  // ---------- Card play ----------
-  function playOn(id) {
-    const key = S.hand[U.card];
-    const res = VB.playCard(S, U.card, id);
-    if (!res.ok) { UI.toast(esc(res.text), 'bad'); return; }
-    U.card = null;
-    UI.toast(`${esc(res.text)}<div class="fit ${res.good ? 'good' : 'meh'}">${res.good ? '✓ Well-targeted' : '△ Low value here — ' + esc(CARD_HINTS[key])}</div>`, res.outcome === 'skip' ? 'bad' : 'info', 5200);
-    renderHub(); flush();
   }
 
   // ======================================================================
+  // TRAINING → EVENT → MATCH
   async function goToMatch() {
-    if (S.phase === 'camp') return endCamp();
+    if (U.busy) return;
     const opp = VB.currentOpponent(S);
-    const act = VB.activePlayers(S).filter((x) => !VB.isOut(x.p));
-    const danger = act.filter((x) => { const c = VB.risk(x.p, { opp }, VB.ROW_ROLE[x.row]).cat; return c === 'very high' || VB.injuryDue(x.p, c); });
-    if (act.length < 9) { if (!(await confirmModal(`Only ${act.length} healthy starters. Empty slots weaken their lane. Continue?`))) return; }
-    if (danger.length && !(await confirmModal(`<b>${danger.map((x) => esc(x.p.name)).join(', ')}</b> ${danger.length > 1 ? 'are' : 'is'} at <span style="color:#ff3b4e">dangerous</span> injury risk — very high, or their exposure meter will fill this match (= injury). A coach's duty of care is to bring risk down to an acceptable level. Play anyway?`))) return;
+    const hot = VB.activePlayers(S).filter((x) => !VB.isOut(x.p) && ['very high'].includes(VB.simpleRisk(S, x.p).cat) && !['rest', 'rehab'].includes(x.p.order));
+    if (hot.length && !(await confirm(`<b>${hot.map((x) => esc(x.p.name)).join(', ')}</b> ${hot.length > 1 ? 'are' : 'is'} at <span style="color:${VB.RISK_COLORS['very high']}">VERY HIGH</span> injury risk and still starting. Risk can never be zero, but it should be brought down to an acceptable level.`, 'Play anyway', 'Go back'))) return;
+    U.busy = true;
+    // targeting metric: high-risk players given recovery
+    S.roster.forEach((p) => {
+      const r = VB.simpleRisk(S, p);
+      if (r.cat === 'high' || r.cat === 'very high' || VB.isOut(p) || VB.unrehabbed(p).length) {
+        S.metrics.orders.total++;
+        if (['rest', 'rehab', 'mental'].includes(p.order) || (VB.unrehabbed(p).length && p.order === 'rehab')) S.metrics.orders.good++;
+      }
+    });
+    S.synergy = VB.computeSynergy(S);
+    const lines = VB.applyOrders(S);
+    if (lines.length) await trainingSummary(lines);
     const ev = VB.pickEvent(S);
     if (ev) await showEvent(ev);
-    VB.endTraining(S);
-    if (opp.final) await UI.say(VB.COMMISSIONER.final);
+    S.synergy = VB.computeSynergy(S);
     await runMatch(opp);
   }
-
-  function confirmModal(html) {
+  function confirm(html, yes, no) {
     return new Promise((res) => {
-      UI.modal(`<p>${html}</p><div class="modal-btns"><button class="btn ghost" id="cf-no">Go back</button><button class="btn danger" id="cf-yes">Play anyway</button></div>`);
-      $('#cf-no').onclick = () => { UI.closeModal(); res(false); };
-      $('#cf-yes').onclick = () => { UI.closeModal(); res(true); };
+      modal(`<div class="confirm"><p>${html}</p><div class="modal-btns"><button class="btn ghost" id="c-no">${no}</button><button class="btn primary" id="c-yes">${yes}</button></div></div>`, 'confirm-modal');
+      $('#c-yes').onclick = () => { UI.closeModal(); res(true); };
+      $('#c-no').onclick = () => { UI.closeModal(); res(false); };
     });
   }
-
+  function conceptTag(c) { const k = VB.CONCEPTS[c]; return k ? ` <em class="cref" title="${esc(k.text)}">${k.ref} ${esc(k.name)}</em>` : ''; }
+  function trainingSummary(lines) {
+    return new Promise((res) => {
+      lines.forEach((l) => l.concept && VB.unlock(S, l.concept));
+      modal(`<div class="film"><div class="ev-tag">TRAINING REPORT</div><h2>The week</h2>
+        <ul class="film-lines">${lines.slice(0, 7).map((l) => `<li class="${l.tone}"><i>${l.tone === 'good' ? '▲' : l.tone === 'bad' ? '▼' : '•'}</i><span>${esc(l.text)}${conceptTag(l.concept)}</span></li>`).join('')}</ul>
+        <div class="modal-btns"><button class="btn primary" id="tr-ok">To the locker room ▸</button></div></div>`, 'film-modal');
+      $('#tr-ok').onclick = () => { UI.closeModal(); flushConcepts(); res(); };
+    });
+  }
   function showEvent(ev) {
     return new Promise((res) => {
       const e = ev.e;
-      UI.modal(`<div class="event"><div class="ev-tag">LOCKER ROOM</div><h2>${esc(e.title)}</h2><p class="ev-text">${esc(e.text(ev.ctx))}</p>
+      modal(`<div class="event"><div class="ev-tag">LOCKER ROOM</div><h2>${esc(e.title)}</h2><p class="ev-text">${esc(e.text(ev.ctx))}</p>
         <div class="ev-choices">${e.choices.map((c, i) => `<button class="btn choice" data-ch="${i}">${esc(c.label)}</button>`).join('')}</div></div>`, 'event-modal');
-      VB.Arena.speak && VB.Arena.speak(true); setTimeout(() => VB.Arena.speak && VB.Arena.speak(false), 1200);
       document.querySelectorAll('[data-ch]').forEach((b) => (b.onclick = () => {
         const r = VB.resolveEvent(S, ev, +b.dataset.ch);
         const con = VB.CONCEPTS[r.concept];
         const verdict = { good: ['✓ Strong coaching', 'good'], ok: ['◐ Partly right', 'ok'], poor: ['✗ Risky call', 'poor'] }[r.quality];
-        UI.modal(`<div class="event"><div class="ev-tag">LOCKER ROOM</div><h2>${esc(e.title)}</h2><p class="ev-text">${esc(r.text)}</p>
+        modal(`<div class="event"><div class="ev-tag">LOCKER ROOM</div><h2>${esc(e.title)}</h2><p class="ev-text">${esc(r.text)}</p>
           <div class="verdict ${verdict[1]}">${verdict[0]}</div>
           ${con ? `<div class="concept-chip"><b>${con.ref} · ${esc(con.name)}</b> ${esc(con.text)}</div>` : ''}
-          <div class="modal-btns"><button class="btn primary" id="ev-ok">Continue</button></div></div>`, 'event-modal');
-        $('#ev-ok').onclick = () => { UI.closeModal(); flush(); res(); };
+          <div class="modal-btns"><button class="btn primary" id="ev-ok">To the match ▸</button></div></div>`, 'event-modal');
+        $('#ev-ok').onclick = () => { UI.closeModal(); flushConcepts(); res(); };
       }));
     });
   }
 
-  // ======================================================================
-  // MATCH
+  // ---------------- Match ----------------
+  const DRIVES = [ // [quarter, mode]
+    [1, 'attack'], [2, 'defense'], [3, 'attack'], [4, 'defense'], [4, 'attack'],
+  ];
   async function runMatch(opp) {
-    setView('match'); U.busy = true;
-    S.phase = 'match';
-    $('#topbar').innerHTML = UI.topbar(S);
+    setView('match');
     const sim = new VB.MatchSim(S, opp);
-    const hexOpp = '#' + opp.color.toString(16).padStart(6, '0');
-    screen(`<div class="match-hud">
-      <div class="scoreboard"><div class="sb-team us"><span>YOUR SQUAD</span><b id="sc-us">0</b></div><div class="sb-q" id="sb-q">Q1</div><div class="sb-team them" style="--oc:${hexOpp}"><b id="sc-them">0</b><span>${esc(opp.name)}</span></div></div>
+    const oc = '#' + opp.color.toString(16).padStart(6, '0');
+    screen(`<div class="match">
+      <div class="scoreboard"><div class="sb us"><span>YOUR TEAM</span><b id="sc-us">0</b></div><div class="sb mid"><b id="sc-q">Q1</b><small>${esc(VB.SURFACES[opp.surface].name)}</small></div><div class="sb them" style="--c:${oc}"><span>${esc(opp.name)}</span><b id="sc-them">0</b></div></div>
       <div class="feed" id="feed"></div>
-      <div class="speed"><span>SPEED</span><button class="btn small ${U.speed === 1 ? 'primary' : 'ghost'}" data-sp="1">1×</button><button class="btn small ${U.speed === 3 ? 'primary' : 'ghost'}" data-sp="3">3×</button><button class="btn small ${U.speed === 0 ? 'primary' : 'ghost'}" data-sp="0">Skip ⏭</button></div>
-      <div class="strip" id="strip"></div>
+      <div class="mstage" id="mstage"></div>
     </div>`);
-    if (VB.Arena.ok) { VB.Arena.setMode('match'); VB.Arena.setTeams(opp.color, sim.grid); }
-    sim.subs.forEach((t) => addFeed(t, 'sub'));
-    renderStrip(sim, opp);
+    sim.subs.forEach((t) => feed(t, 'sub'));
+    const liveLog = [];
     for (let q = 1; q <= 4; q++) {
-      $('#sb-q').textContent = 'Q' + q;
-      const plays = sim.quarter();
-      await showPlays(plays, sim, opp);
-      if (q === 2) {
-        const ch = await halftime(sim);
-        const msg = sim.halftime(ch);
-        if (msg) addFeed('HALFTIME — ' + msg, 'sub');
-        syncSim(sim); renderStrip(sim, opp);
+      $('#sc-q').textContent = 'Q' + q;
+      const plays = sim.quarter(1);
+      for (const pl of plays) { feed(pl.text, pl.side === 'injury' ? 'inj' : pl.made ? (pl.side === 'us' ? 'good' : 'bad') : ''); setScore(sim); await sleep(220); }
+      const drives = DRIVES.filter((d) => d[0] === q);
+      for (const [, mode] of drives) {
+        const close = Math.abs(sim.us - sim.them) <= 6;
+        const clutch = q === 4 && close;
+        const call = await playCall(mode, q, clutch, sim);
+        let res;
+        if (call === 'sim') res = Object.assign({ qs: [] }, VB.simDrive(sim, mode));
+        else {
+          const d = new VB.Drive({ state: S, sim, mode, play: call, opp, clutch });
+          $('#livescore').textContent = `YOU ${sim.us} – ${sim.them} ${opp.name.split(' ')[0].toUpperCase()} · Q${q}${clutch ? ' · CLUTCH' : ''}`;
+          res = await d.start();
+        }
+        sim.us += res.us; sim.them += res.them;
+        if (res.scorer && sim.live[res.scorer.id]) sim.live[res.scorer.id].pts += res.us;
+        if (res.assist && sim.live[res.assist.id]) sim.live[res.assist.id].ast++;
+        liveLog.push({ mode, res });
+        const qs = res.qs.length ? ` · ${res.qs.filter((x) => x.ok).length}/${res.qs.length} command terms` : '';
+        feed(`KEY DRIVE (${mode === 'attack' ? 'attack' : 'defence'}): ${res.text}${qs}`, 'key');
+        setScore(sim);
       }
     }
-    if (sim.us === sim.them) {
-      $('#sb-q').textContent = 'OT'; addFeed('OVERTIME — sudden death.', 'sub');
-      const n = sim.plays.length; sim.overtime(); await showPlays(sim.plays.slice(n), sim, opp);
-    }
+    if (sim.us === sim.them) { feed('Tied! Sudden-death overtime…', 'key'); sim.overtime(); setScore(sim); }
     const res = sim.finish();
-    await sleep(U.speed ? 700 : 100);
+    res.liveLog = liveLog;
+    await sleep(500);
     finishMatch(res, opp);
   }
+  function feed(text, cls) { const f = $('#feed'); if (!f) return; const d = document.createElement('div'); d.className = 'fl ' + (cls || ''); d.textContent = text; f.prepend(d); }
+  function setScore(sim) { $('#sc-us').textContent = sim.us; $('#sc-them').textContent = sim.them; }
 
-  function addFeed(text, cls) {
-    const f = $('#feed'); if (!f) return;
-    const d = document.createElement('div'); d.className = 'fi ' + (cls || ''); d.innerHTML = text;
-    f.prepend(d);
-    while (f.children.length > 9) f.lastChild.remove();
-  }
-  function renderStrip(sim, opp) {
-    const el = $('#strip'); if (!el) return;
-    let h = '';
-    sim.each((p, r) => {
-      const fat = sim.live[p.id].fat;
-      const saved = p.fatigue; p.fatigue = fat;
-      const rk = VB.risk(p, { opp, lateGame: sim.q >= 4 && fat >= 60 }, VB.ROW_ROLE[r]);
-      p.fatigue = saved;
-      h += `<div class="st-p"><span class="n">${p.num}</span><span class="nm">${esc(p.name.split(' ')[1] || p.name)}</span><span class="fb" data-tip="Fatigue"><i style="width:${fat}%"></i></span>${UI.pips(p, rk.cat)}${UI.riskChip(rk.cat)}</div>`;
-    });
-    el.innerHTML = h;
-  }
-  function syncSim(sim) {
-    if (!VB.Arena.ok) return;
-    for (let r = 0; r < 3; r++) for (let l = 0; l < 3; l++) VB.Arena.setOurSlot(r, l, sim.grid[r][l]);
-  }
-  async function showPlays(plays, sim, opp) {
-    for (const pl of plays) {
-      if (U.speed > 0 && VB.Arena.ok) await VB.Arena.play(pl, U.speed);
-      else if (U.speed > 0) await sleep(250 / U.speed);
-      $('#sc-us').textContent = pl.score[0]; $('#sc-them').textContent = pl.score[1];
-      if (pl.side === 'injury') {
-        addFeed('⚠ ' + esc(pl.text), 'inj');
-        UI.toast(`⚠ <b>${esc(pl.injured.name)}</b> — ${esc(pl.injName)}`, 'bad');
-        if (U.speed > 0) await UI.say(VB.pick(VB.COMMISSIONER.injury));
-        syncSim(sim);
-      } else if (pl.side === 'knock') addFeed('• ' + esc(pl.text), 'knock');
-      else addFeed(esc(pl.text), pl.side === 'us' ? (pl.made ? 'us' : 'miss') : pl.made ? 'them' : 'stop');
-      if (U.speed === 0) await sleep(8);
-    }
-    renderStrip(sim, opp);
-  }
-  function halftime(sim) {
+  function playCall(mode, q, clutch, sim) {
     return new Promise((res) => {
-      const diff = sim.us - sim.them;
-      UI.modal(`<div class="event"><div class="ev-tag">HALFTIME · ${sim.us}–${sim.them}</div><h2>${diff > 0 ? 'You lead.' : diff < 0 ? 'You trail.' : 'All square.'}</h2>
-        <p class="ev-text">One call for the second half.</p>
-        <div class="ev-choices">
-          <button class="btn choice" data-ht="talk"><b>Self-talk huddle</b><small>PST cue words. Less clutch nerves in Q4.</small></button>
-          <button class="btn choice" data-ht="tempo"><b>Push the tempo</b><small>More attack. Fatigue rises faster: late-game injury risk.</small></button>
-          <button class="btn choice" data-ht="rotate"><b>Rotate the bench</b><small>Most tired starter comes off. Everyone recovers a little.</small></button>
-        </div></div>`, 'event-modal');
-      document.querySelectorAll('[data-ht]').forEach((b) => (b.onclick = () => { const v = b.dataset.ht; UI.closeModal(); VB.unlock(S, v === 'talk' ? 'pst' : 'late_game'); flush(); res(v); }));
+      const plays = VB.PLAYS[mode === 'attack' ? 'attack' : 'defense'];
+      const st = $('#mstage');
+      st.innerHTML = `<div class="playcall ${mode}">
+        <div class="pc-h"><span class="ev-tag">${clutch ? 'CLUTCH · ' : ''}KEY DRIVE · Q${q}</span><h2>${mode === 'attack' ? 'You have the ball. Call a play.' : 'They have the ball. Call a defence.'}</h2>
+        <small>${mode === 'attack' ? 'Every shot and every long or risky pass asks a command-term question.' : 'Get close when they shoot to contest. Answer right for a big contest.'}${clutch ? ' <b class="warn">Close game: anxious (high-N) players get less time.</b>' : ''}</small></div>
+        <div class="plays">${plays.map((p, i) => `<button class="play" data-play="${p.id}"><span class="pk">${i + 1}</span><span class="pi">${p.icon}</span><b>${p.name}</b><small>${p.desc}</small></button>`).join('')}</div>
+        <button class="btn ghost small" data-play="sim">Sim this drive (no questions)</button></div>`;
+      const pick = (id) => { window.removeEventListener('keydown', key); st.innerHTML = ''; res(id); };
+      st.querySelectorAll('[data-play]').forEach((b) => (b.onclick = () => pick(b.dataset.play)));
+      const key = (e) => { const n = +e.key; if (n >= 1 && n <= 3) pick(plays[n - 1].id); };
+      window.addEventListener('keydown', key);
+      st.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
   }
 
@@ -395,155 +351,125 @@
     const lines = VB.filmRoom(S, res, opp);
     const post = VB.postMatch(S, res);
     S.synergy = VB.computeSynergy(S);
+    const qsAll = res.liveLog.flatMap((x) => x.res.qs);
     const leaders = res.played.map((id) => ({ p: VB.byId(S, id), lv: res.live[id] })).sort((a, b) => b.lv.pts + b.lv.ast * 1.5 - (a.lv.pts + a.lv.ast * 1.5)).slice(0, 3);
     const tone = { good: '▲', bad: '▼', neutral: '•' };
-    UI.modal(`<div class="film"><div class="ev-tag">FILM ROOM</div><h2 class="${won ? 'win' : 'loss'}">${won ? 'VICTORY' : 'DEFEAT'} <span>${res.us}–${res.them}</span></h2>
-      <ul class="film-lines">${lines.map((l) => `<li class="${l.tone}"><i>${tone[l.tone] || '•'}</i><span>${esc(l.text)}${l.concept ? ` <em class="cref" data-tip="${esc(VB.CONCEPTS[l.concept].text)}">${VB.CONCEPTS[l.concept].ref} ${esc(VB.CONCEPTS[l.concept].name)}</em>` : ''}</span></li>`).join('')}</ul>
+    modal(`<div class="film"><div class="ev-tag">FILM ROOM</div><h2 class="${won ? 'win' : 'loss'}">${won ? 'VICTORY' : 'DEFEAT'} <span>${res.us}–${res.them}</span></h2>
+      ${qsAll.length ? `<div class="qsum">Command terms this match: <b>${qsAll.filter((x) => x.ok).length}/${qsAll.length}</b> ${qsAll.map((x) => `<span class="qt ${x.ok ? 'ok' : 'no'}">${esc(x.term)}</span>`).join('')}</div>` : ''}
+      <ul class="film-lines">${lines.map((l) => `<li class="${l.tone}"><i>${tone[l.tone] || '•'}</i><span>${esc(l.text)}${l.concept ? conceptTag(l.concept) : ''}</span></li>`).join('')}</ul>
       <div class="leaders">${leaders.map((x) => `<div><b>${esc(x.p.name)}</b><span>${x.lv.pts} pts · ${x.lv.ast} ast</span></div>`).join('')}</div>
       ${post.length ? `<div class="post"><b>Medical room</b>${post.map((t) => `<div>${esc(t)}</div>`).join('')}</div>` : ''}
-      <div class="modal-btns"><button class="btn primary" id="film-ok">Continue</button></div></div>`, 'film-modal');
-    VB.unlock(S, 'risk');
+      <div class="modal-btns"><button class="btn primary" id="film-ok">Continue ▸</button></div></div>`, 'film-modal');
     $('#film-ok').onclick = async () => {
-      UI.closeModal(); flush(); U.busy = false;
+      UI.closeModal(); flushConcepts(); U.busy = false;
       const moreToPlay = S.week < VB.weeksInSeason(S);
       if (moreToPlay && VB.outCount(S) >= 3) { S.metrics.collapse = true; await UI.say(['Three in the infirmary. You cannot field nine.', 'The table is mine.']); return endReport(); }
-      await UI.say(VB.pick(won ? VB.COMMISSIONER.win : VB.COMMISSIONER.loss));
+      if (res.injuries.length) await UI.say([VB.pick(VB.COMMISSIONER.injury)]);
+      else await UI.say([VB.pick(won ? VB.COMMISSIONER.win : VB.COMMISSIONER.loss)]);
       nextWeek();
     };
   }
-
   function nextWeek() {
     S.week++;
     if (S.week > VB.weeksInSeason(S)) return seasonEnd();
-    S.phase = 'training';
     startWeek();
   }
 
   // ======================================================================
   // OFFSEASON
+  function termTable(cmp) {
+    const s1 = VB.qSummary(S, 1), s2 = VB.qSummary(S, 2);
+    const terms = Object.keys(VB.TERMS).filter((t) => s1.terms[t] || s2.terms[t]);
+    if (!terms.length) return '<p class="muted">No command-term questions answered yet. Play the key drives!</p>';
+    const pct = (r) => (r && r.a ? Math.round((100 * r.c) / r.a) : null);
+    const rows = terms.sort((a, b) => VB.TERMS[a].lvl - VB.TERMS[b].lvl || a.localeCompare(b)).map((t) => {
+      const a = pct(s1.terms[t]), b = pct(s2.terms[t]);
+      const ch = cmp && a != null && b != null ? b - a : null;
+      const bar = (v) => (v == null ? '<span class="muted">–</span>' : `<span class="tbar"><i style="width:${v}%;background:${v >= 75 ? '#3ddc84' : v >= 50 ? '#ffd23f' : '#ff5e7a'}"></i></span>${v}%`);
+      return `<tr><td><b>${t}</b><small> L${VB.TERMS[t].lvl}</small></td><td>${bar(a)} <small class="muted">${s1.terms[t] ? `${s1.terms[t].c}/${s1.terms[t].a}` : ''}</small></td>${cmp ? `<td>${bar(b)} <small class="muted">${s2.terms[t] ? `${s2.terms[t].c}/${s2.terms[t].a}` : ''}</small></td><td class="${ch > 0 ? 'up' : ch < 0 ? 'down' : ''}">${ch == null ? '' : (ch > 0 ? '+' : '') + ch + '%'}</td>` : ''}</tr>`;
+    }).join('');
+    const tot = (s) => (s.a ? `${s.pct}% (${s.c}/${s.a})` : '–');
+    const chg = cmp && s1.a && s2.a ? s2.pct - s1.pct : null;
+    return `<table class="terms"><thead><tr><th>Command term</th><th>Season 1</th>${cmp ? '<th>Season 2</th><th>Change</th>' : ''}</tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr><td>All terms</td><td>${tot(s1)}</td>${cmp ? `<td>${tot(s2)}</td><td class="${chg > 0 ? 'up' : chg < 0 ? 'down' : ''}">${chg == null ? '' : (chg > 0 ? '+' : '') + chg + '%'}</td>` : ''}</tr></tfoot></table>`;
+  }
   async function seasonEnd() {
     if (S.season === 2) return endReport();
     setView('offseason');
-    VB.Arena.setMode && VB.Arena.setMode('table');
     await UI.say(VB.COMMISSIONER.offseason);
     const inj = S.metrics.injuries.filter((i) => i.season === 1);
     const top = (k) => S.roster.slice().sort((a, b) => ((b.seasonStats[1] || {})[k] || 0) - ((a.seasonStats[1] || {})[k] || 0))[0];
     const tp = top('pts'), ta = top('ast');
-    UI.modal(`<div class="film"><div class="ev-tag">SEASON 1 REVIEW</div><h2>${S.record[1].w}–${S.record[1].l}</h2>
+    screen(`<div class="review"><div class="ev-tag">SEASON 1 REVIEW</div><h1>${S.record[1].w}–${S.record[1].l}</h1>
       <div class="leaders"><div><b>Top scorer</b><span>${esc(tp.name)} · ${(tp.seasonStats[1] || {}).pts || 0} pts</span></div><div><b>Top playmaker</b><span>${esc(ta.name)} · ${(ta.seasonStats[1] || {}).ast || 0} ast</span></div>
       <div><b>Injuries</b><span>${inj.filter((i) => i.kind === 'acute').length} acute · ${inj.filter((i) => i.kind === 'chronic').length} chronic</span></div></div>
-      <p class="muted">Next: set offseason rehab plans, then you may swap up to 3 players.</p>
-      <div class="modal-btns"><button class="btn primary" data-act="to-plan">Plan the offseason ▶</button></div></div>`, 'film-modal');
+      <h3>Command-term accuracy</h3>${termTable(false)}
+      <p class="muted">Next: choose an offseason focus. Then you may swap up to 3 players.</p>
+      <button class="btn primary big" data-act="to-plan">Plan the offseason ▸</button></div>`);
   }
-
-  const PLAN = { points: 6, rehab: {}, focus: null };
-  function offseasonPlan() {
-    UI.closeModal();
-    setView('plan');
-    PLAN.points = 6; PLAN.rehab = {}; PLAN.focus = PLAN.focus || null;
-    renderPlan();
-  }
+  const FOCUS = [
+    { id: 'rehab', name: 'Rehab block', desc: 'Every old injury is fully rehabilitated (strength, range of movement, proprioception). Health +15. No skill gain.', concept: 'rehab' },
+    { id: 'prehab', name: 'Strength & prehab', desc: 'Fitness +3 and 2 weeks of prehab for all. Old injuries heal but stay "not rehabbed". Health +8.', concept: 'prehab' },
+    { id: 'volume', name: 'Skill volume', desc: 'Main skill +5 for all. But everyone starts Season 2 with heavy load (high overuse risk). Health +5.', concept: 'training_volume' },
+  ];
   function renderPlan() {
-    $('#topbar').innerHTML = UI.topbar(S);
-    const used = Object.values(PLAN.rehab).filter(Boolean).length * 2;
-    const left = PLAN.points - used;
-    const rows = S.roster.map((p) => {
-      const need = VB.unrehabbed(p).length || VB.isOut(p) || p.health < 70;
-      const full = !!PLAN.rehab[p.id];
-      const hist = VB.unrehabbed(p).map((h) => VB.INJURIES[h.type].name).join(', ');
-      return `<div class="plan-row ${need ? '' : 'fine'}"><div class="pr-name"><b>${esc(p.name)}</b><small>${VB.ROLES[p.role].name} · age ${p.age} → ${p.age + 1}</small></div>
-        <div class="pr-status">${VB.isOut(p) ? `<span class="warn">OUT: ${esc(VB.INJURIES[p.injury.type].name)}</span>` : ''} ${hist ? `<span class="muted">Not rehabbed: ${esc(hist)}</span>` : ''} ${UI.bar('HP', p.health, 100, 'hp')}</div>
-        <div class="pr-opts">${need ? `<button class="btn small ${full ? 'primary' : 'ghost'}" data-act="plan-rehab" data-id="${p.id}" ${!full && left < 2 ? 'disabled' : ''}>Full rehab (2)</button><button class="btn small ${!full ? 'primary' : 'ghost'}" data-act="plan-maint" data-id="${p.id}">Maintenance (0)</button>` : '<span class="ok">Healthy — maintenance</span>'}</div></div>`;
-    }).join('');
-    const F = [
-      { id: 'prehab', name: 'Strength & Prehab', desc: 'Fitness +3 for all. Everyone starts Season 2 with 2 weeks of prehab.', concept: 'prehab' },
-      { id: 'volume', name: 'Skill Volume', desc: 'Main skill +5 for all. But everyone starts Season 2 with heavy strain (+30).', concept: 'training_volume' },
-      { id: 'mental', name: 'Mental Skills Camp', desc: 'All 4Cs +1, Self-compassion +1. Anxious, conscientious players: Neuroticism −1.', concept: 'pst' },
-    ];
-    screen(`<div class="plan">
-      <div class="plan-head"><h2>OFFSEASON PLAN</h2><div class="pp">Rehab points <b>${left}</b> / ${PLAN.points}</div></div>
-      <p class="muted">Full rehab restores strength and proprioception: it clears re-injury risk and adds health. Maintenance lets injuries heal, but leaves re-injury risk. Everyone ages a year. Players 30+ lose fitness.</p>
-      <div class="plan-rows">${rows}</div>
-      <h3>Summer team focus</h3>
-      <div class="focus-opts">${F.map((f) => `<button class="focus-card ${PLAN.focus === f.id ? 'on' : ''}" data-act="plan-focus" data-f="${f.id}"><b>${f.name}</b><span>${f.desc}</span><small>${VB.CONCEPTS[f.concept].ref} · ${esc(VB.CONCEPTS[f.concept].name)}</small></button>`).join('')}</div>
-      <button class="btn primary big go" data-act="plan-go" ${PLAN.focus ? '' : 'disabled'}>${PLAN.focus ? 'Confirm plan ▶' : 'Pick a summer focus ↓'}</button>
-    </div>`);
+    setView('plan'); topbar();
+    screen(`<div class="plan"><div class="ev-tag">OFFSEASON</div><h1>Choose the summer focus</h1>
+      <p class="muted">Everyone ages a year. Players aged 30+ lose a little fitness. Injured players heal over the break.</p>
+      <div class="focus-opts">${FOCUS.map((f) => `<button class="focus-card" data-act="plan-go" data-f="${f.id}"><b>${f.name}</b><span>${f.desc}</span><small>${VB.CONCEPTS[f.concept].ref} · ${esc(VB.CONCEPTS[f.concept].name)}</small></button>`).join('')}</div></div>`);
   }
-  function applyPlan() {
+  function applyPlan(focus) {
     const clamp = VB.clamp;
     S.roster.forEach((p) => {
-      if (PLAN.rehab[p.id]) {
-        const n = VB.unrehabbed(p).length;
-        p.history.forEach((h) => (h.cleared = true));
-        S.metrics.rehabFull += n;
-        p.injury = null; p.health = clamp(p.health + 20, 0, 100);
-      } else {
-        if (p.injury) { p.injury.weeks -= 4; if (p.injury.weeks <= 0) p.injury = null; }
-        p.health = clamp(p.health + 8, 0, 100);
-      }
+      if (focus === 'rehab') { const n = VB.unrehabbed(p).length; p.history.forEach((h) => (h.cleared = true)); S.metrics.rehabFull += n; p.injury = null; p.health = clamp(p.health + 15, 0, 100); }
+      else { if (p.injury) { p.injury.weeks -= 4; if (p.injury.weeks <= 0) p.injury = null; } p.health = clamp(p.health + (focus === 'prehab' ? 8 : 5), 0, 100); }
       p.age++;
       if (p.age >= 30) p.sk.fit = clamp(p.sk.fit - 2, 1, 99);
-      if (p.age <= 23) { const k = p.role === 'STR' ? 'sht' : p.role === 'LNK' ? 'pas' : 'def'; p.sk[k] = clamp(p.sk[k] + 2, 1, 99); }
-      p.fatigue = 10; p.strain = 20; p.stress = clamp(p.stress - 20, 0, 100); p.niggle = false; p.earlyReturn = 0;
-      if (PLAN.focus === 'prehab') { p.sk.fit = clamp(p.sk.fit + 3, 1, 99); p.prehab = 2; }
-      if (PLAN.focus === 'volume') { ['sht', 'pas', 'def'].forEach((k) => {}); const k = p.role === 'STR' ? 'sht' : p.role === 'LNK' ? 'pas' : 'def'; p.sk[k] = clamp(p.sk[k] + 5, 1, 99); p.strain = 50; }
-      if (PLAN.focus === 'mental') { ['control', 'commitment', 'challenge', 'confidence'].forEach((k) => (p.mt[k] = clamp(p.mt[k] + 1, 1, 10))); p.sc = clamp(p.sc + 1, 1, 10); if (p.b5.N >= 7 && p.b5.C >= 5) { p.b5.N--; S.metrics.traitShifts++; } }
+      p.fatigue = 10; p.strain = 20; p.stress = clamp(p.stress - 20, 0, 100); p.niggle = false; p.earlyReturn = 0; p.exposure = 0;
+      if (focus === 'prehab') { p.sk.fit = clamp(p.sk.fit + 3, 1, 99); p.prehab = 2; }
+      if (focus === 'volume') { const k = p.role === 'STR' ? 'sht' : p.role === 'LNK' ? 'pas' : 'def'; p.sk[k] = clamp(p.sk[k] + 5, 1, 99); p.strain = 60; p.fatigue = 40; }
     });
-    VB.unlock(S, 'rehab'); VB.unlock(S, 'age');
-    VB.unlock(S, { prehab: 'prehab', volume: 'training_volume', mental: 'malleable' }[PLAN.focus]);
-    S.metrics.offseasonFocus = PLAN.focus;
-    flush();
-    openMarket(3, 'END OF SEASON', 52, 4, () => summerCamp());
+    VB.unlock(S, FOCUS.find((f) => f.id === focus).concept); VB.unlock(S, 'age');
+    S.metrics.offseasonFocus = focus;
+    flushConcepts();
+    openMarket(3, 'END OF SEASON', 52, 'camp');
   }
 
   // ---------- Market ----------
-  let MK = null;
-  function openMarket(n, label, tier, scout, then) {
+  function openMarket(n, label, tier, then, resume) {
     setView('market');
-    S.swapsLeft = n; S.scoutPoints = scout;
-    S.market = VB.makeMarket(S, tier, 6);
-    MK = { label, then, n };
-    U.mkSel = S.market[0].id; U.relSel = null; U.flip = false;
-    VB.unlock(S, 'lots'); flush();
+    S.phase = 'market';
+    if (!resume) { S.swapsLeft = n; S.scoutPoints = 3; S.market = VB.makeMarket(S, tier, 5); }
+    S.mk = { n, label, tier, then };
+    U.mkSel = S.market[0] && S.market[0].id; U.relSel = null;
+    VB.unlock(S, 'lots'); VB.unlock(S, 'self_report'); flushConcepts();
     renderMarket();
+    autosave();
   }
-  function displayOf(p) {
-    if (p.known.all) return { dp: p, masked: {} };
-    const k = p.known;
-    const dp = JSON.parse(JSON.stringify(p));
-    const masked = {};
-    if (!k.O) { masked.A = masked.E = true; }
-    if (!k.S) { masked.C = masked.N = masked.O = true; masked.S = true; }
-    else { dp.b5.C = p.selfReport.C; dp.b5.N = p.selfReport.N; dp.b5.O = p.selfReport.O; Object.keys(dp.mt).forEach((m) => (dp.mt[m] = p.selfReport.mt)); }
-    if (!k.T) masked.T = true;
-    if (!k.L) masked.L = true;
-    dp.stats = p.stats; dp.seasonStats = p.seasonStats;
-    return { dp, masked };
+  function shownB5(p) {
+    if (p.known.all || p.known.O) return { vals: p.b5, sr: false };
+    return { vals: { O: p.selfReport.O, C: p.selfReport.C, E: p.b5.E, A: p.b5.A, N: p.selfReport.N }, sr: true };
   }
   function renderMarket() {
-    $('#topbar').innerHTML = UI.topbar(S, `<span class="chip">Swaps left <b>${S.swapsLeft}</b></span><span class="chip">Scouting <b>${S.scoutPoints}</b></span>`);
+    topbar(`<span class="chip">Swaps left <b>${S.swapsLeft}</b></span><span class="chip">Scouting <b>${S.scoutPoints}</b></span>`);
     const mp = S.market.find((p) => p.id === U.mkSel);
-    const roster = S.roster.map((p) => `<div class="rrow ${U.relSel === p.id ? 'on' : ''} ${VB.isOut(p) ? 'out' : ''}" data-act="rel" data-id="${p.id}"><span class="n">${p.num}</span><b>${esc(p.name)}</b><small>${p.role} · ${p.age} · OVR ${VB.ovr(p)}</small>${VB.isOut(p) ? '<em class="warn">OUT</em>' : ''}${VB.unrehabbed(p).length ? `<em class="muted">${VB.unrehabbed(p).length} old inj.</em>` : ''}</div>`).join('');
-    const list = S.market.map((p) => {
-      const { dp, masked } = displayOf(p);
-      return `<div class="mrow ${U.mkSel === p.id ? 'on' : ''}" data-act="mk" data-id="${p.id}">${UI.pentagon(dp.b5, 40, { masked })}<div><b>${esc(p.name)}</b><small>${VB.ROLES[p.role].name} · age ${p.age}</small><small>${masked.T ? 'OVR ' + (VB.ovr(p) - 6) + '–' + (VB.ovr(p) + 6) + ' (est.)' : 'OVR ' + VB.ovr(p)}</small></div></div>`;
-    }).join('');
+    const roster = S.roster.map((p) => `<div class="rrow ${U.relSel === p.id ? 'on' : ''} ${VB.isOut(p) ? 'out' : ''}" data-act="rel" data-id="${p.id}"><div class="rspr">${UI.sprite(p, { bust: true })}</div><div><b>${esc(p.name)}</b><small>${p.role} · ${p.age}y · OVR ${VB.ovr(p)}${VB.isOut(p) ? ' · <em class="warn">OUT</em>' : ''}${VB.unrehabbed(p).length ? ` · ${VB.unrehabbed(p).length} old inj.` : ''}</small></div></div>`).join('');
+    const list = S.market.map((p) => `<div class="rrow ${U.mkSel === p.id ? 'on' : ''}" data-act="mk" data-id="${p.id}"><div class="rspr">${UI.sprite(p, { bust: true })}</div><div><b>${esc(p.name)}</b><small>${VB.ROLES[p.role].name} · ${p.age}y · OVR ${VB.ovr(p)} · HP ${p.health}</small></div></div>`).join('') || '<p class="muted">No free agents left.</p>';
     let detail = '';
     if (mp) {
-      const { dp, masked } = displayOf(mp);
-      const sbtn = (k, name, what) => `<button class="btn small ${mp.known[k] ? 'primary' : 'ghost'}" data-act="scout" data-k="${k}" ${mp.known[k] || S.scoutPoints <= 0 ? 'disabled' : ''} data-tip="${esc(what)}"><b>${k}</b> ${name}</button>`;
-      detail = `<div class="scout"><div class="scout-h">SCOUT (1 point each) — <span class="muted">LOTS</span></div>
-        ${sbtn('L', 'Lifetime history', 'Past seasons + injury record + health')}${sbtn('O', 'Observation', "Watch them with others: reveals Agreeableness and Extraversion")}${sbtn('T', 'Tests', 'Fitness and skill tests: reveals skills, health and OVR')}${sbtn('S', 'Self-report', 'Their own questionnaire: Conscientiousness, Neuroticism, Openness, mental toughness. May be flattering!')}
-        ${mp.known.S ? '<div class="sr-warn">⚠ C, N, O and the 4Cs shown are <b>self-reported</b>. People often present themselves well.</div>' : ''}</div>
-        ${UI.bigCard(dp, S, { masked, flipped: U.flip, noRisk: true })}
-        <div class="detail-actions"><button class="btn ghost small" data-act="flip">↻ Flip</button>
-        <button class="btn primary" data-act="sign" ${S.swapsLeft > 0 && U.relSel ? '' : 'disabled'}>${U.relSel ? `Sign — release ${esc(VB.byId(S, U.relSel).name)}` : 'Select a player to release'}</button></div>`;
+      const sh = shownB5(mp);
+      const hist = mp.history.length ? mp.history.map((h) => esc(VB.INJURIES[h.type].name)).join(', ') : 'none';
+      detail = `<div class="pcard small"><div class="pc-top"><div class="pc-spr">${UI.sprite(mp)}</div><div class="pc-id"><h2>${esc(mp.name)}</h2><div class="pc-sub">${VB.ROLES[mp.role].name} · age ${mp.age} · OVR ${VB.ovr(mp)}</div>
+        <div class="hp"><small>Health</small><span class="hpbar"><i style="width:${mp.health}%"></i></span><b>${mp.health}</b></div><div class="small">Injury history: ${hist}</div></div></div>
+        <div class="pc-sec"><h4>Big Five ${sh.sr ? '<span class="srtag">O, C, N are SELF-REPORTED</span>' : '<span class="oktag">observed</span>'}</h4>${UI.b5Bars(mp, { vals: sh.vals })}</div>
+        ${sh.sr ? `<p class="small muted">Self-report can be biased: people present themselves well. Watching them train (observation) shows the real values.</p><button class="btn small" data-act="scout" ${S.scoutPoints > 0 ? '' : 'disabled'}>👁 Observe in training (1 scout)</button>` : ''}
+        <div class="modal-btns"><button class="btn primary" data-act="sign" ${S.swapsLeft > 0 && U.relSel ? '' : 'disabled'}>${U.relSel ? `Sign, release ${esc(VB.byId(S, U.relSel).name)}` : 'Pick a player to release (left)'}</button></div></div>`;
     }
     screen(`<div class="market">
-      <div class="mk-col"><h3>YOUR SQUAD <small>click to release</small></h3><div class="rlist">${roster}</div></div>
-      <div class="mk-col"><h3>${MK.label} — FREE AGENTS <small>swap up to ${MK.n}</small></h3><div class="mlist">${list}</div></div>
+      <div class="mk-col"><h3>Your squad <small>click to release</small></h3><div class="rlist">${roster}</div></div>
+      <div class="mk-col"><h3>${S.mk.label}: free agents <small>swap up to ${S.mk.n}</small></h3><div class="rlist">${list}</div></div>
       <div class="mk-detail">${detail}</div>
-      <button class="btn primary go" data-act="mk-done">Done signing ▶</button>
+      <div class="hubbar"><span class="muted small">Market = LOTS data: Lifetime history (injuries), Observation, Tests (OVR), Self-report.</span><button class="btn primary big" data-act="mk-done">Done ▸</button></div>
     </div>`);
   }
   function signPlayer() {
@@ -552,43 +478,63 @@
     if (!mp || !out || S.swapsLeft <= 0) return;
     const slot = VB.findSlot(S, out.id);
     S.roster = S.roster.filter((p) => p.id !== out.id);
-    const wasSR = mp.known.S;
+    const wasSR = !(mp.known.all || mp.known.O);
     mp.known = { all: true };
+    mp.order = 'pas';
     S.roster.push(mp);
     if (slot.row >= 0) S.lineup[slot.row][slot.lane] = mp.id; else S.bench[slot.lane] = mp.id;
     S.market = S.market.filter((p) => p.id !== mp.id);
     S.swapsLeft--; S.metrics.swaps++;
     VB.log(S, `Signed ${mp.name}, released ${out.name}.`, null, 'neutral');
     if (wasSR) {
-      const diffs = [];
-      if (mp.selfReport.C !== mp.b5.C) diffs.push(`C said ${mp.selfReport.C}, really ${mp.b5.C}`);
-      if (mp.selfReport.N !== mp.b5.N) diffs.push(`N said ${mp.selfReport.N}, really ${mp.b5.N}`);
-      if (diffs.length) { UI.toast(`Reality check — ${esc(mp.name)}: ${esc(diffs.join('; '))}. Self-report bias.`, 'trait', 7000); VB.unlock(S, 'self_report'); }
+      const d = [];
+      ['C', 'N', 'O'].forEach((k) => { if (mp.selfReport[k] !== mp.b5[k]) d.push(`${k} said ${mp.selfReport[k]}, really ${mp.b5[k]}`); });
+      if (d.length) UI.toast(`Reality check, ${mp.name}: ${d.join('; ')}. Self-report bias.`, 'trait');
     }
-    UI.toast(`✍ ${esc(mp.name)} joins. ${esc(out.name)} leaves.`, 'info');
+    UI.toast(`✍ ${mp.name} joins. ${out.name} leaves.`, 'info');
     U.relSel = null; U.mkSel = S.market[0] ? S.market[0].id : null;
     S.synergy = VB.computeSynergy(S);
-    flush();
-    renderMarket();
+    renderMarket(); autosave();
+  }
+  async function marketDone() {
+    const then = S.mk.then;
+    S.market = []; S.mk = null;
+    if (then === 'camp') return summerCamp();
+    return startSeason2();
   }
 
   // ---------- Summer camp ----------
+  const CAMP = [
+    { id: 'sht', name: 'Shooting camp', desc: 'Shooting +3 for all. Everyone starts Season 2 with full shooting form (◎◎).' },
+    { id: 'pas', name: 'Team camp', desc: 'Passing +3 for all, chemistry +4. Full passing form (⇄⇄).' },
+    { id: 'def', name: 'Defence camp', desc: 'Defence +3 for all. Full defence form (▣▣).' },
+    { id: 'mental', name: 'Mental skills camp', desc: 'Stress down and composure up for all. Anxious players with good habits (N≥7, C≥5): Neuroticism −1.' },
+  ];
   async function summerCamp() {
-    S.phase = 'camp'; S.focusMax = 5;
-    await UI.say(['Summer camp. No matches, no crowd.', 'Five Focus. One week. Build what the season broke.']);
-    startWeek();
+    S.phase = 'camp';
+    await UI.say(['Summer camp. No matches, no crowd.', 'One week. Build what the season broke.']);
+    renderCamp();
   }
-  async function endCamp() {
-    const ev = VB.pickEvent(S);
-    if (ev) await showEvent(ev);
-    VB.endTraining(S);
-    S.roster.forEach((p) => { p.fatigue = VB.clamp(p.fatigue - 20, 0, 100); p.week = {}; p.rest = false; });
-    openMarket(2, 'END OF SUMMER', 54, 3, () => startSeason2());
+  function renderCamp() {
+    setView('plan'); topbar();
+    screen(`<div class="plan"><div class="ev-tag">SUMMER CAMP</div><h1>Pick the camp</h1>
+      <div class="focus-opts">${CAMP.map((f) => `<button class="focus-card" data-act="camp" data-f="${f.id}"><b>${f.name}</b><span>${f.desc}</span></button>`).join('')}</div></div>`);
+    autosave();
+  }
+  async function endCamp(id) {
+    const clamp = VB.clamp;
+    S.roster.forEach((p) => {
+      if (['sht', 'pas', 'def'].includes(id)) { p.sk[id] = clamp(p.sk[id] + 3, 1, 99); p.form = { sht: 0, pas: 0, def: 0 }; p.form[id] = 2; }
+      if (id === 'mental') { p.stress = clamp(p.stress - 20, 0, 100); p.mt.control = clamp(p.mt.control + 1, 1, 10); p.mt.confidence = clamp(p.mt.confidence + 1, 1, 10); if (p.b5.N >= 7 && p.b5.C >= 5) { p.b5.N--; S.metrics.traitShifts++; } }
+    });
+    if (id === 'pas') S.chemBonus = (S.chemBonus || 0) + 4;
+    if (id === 'mental') VB.unlock(S, 'malleable');
+    flushConcepts();
+    openMarket(2, 'END OF SUMMER', 54, 's2');
   }
   async function startSeason2() {
-    S.season = 2; S.week = 1; S.phase = 'training'; S.focusMax = 4; S.lastResults = [];
-    S.deck = VB.buildDeck(); S.discard = []; S.hand = [];
-    await UI.say(['Season two. Better teams. Harder bodies.', 'And at the end of it — my team.']);
+    S.season = 2; S.week = 1; S.lastResults = [];
+    await UI.say(['Season two. Better teams. Harder bodies.', 'And at the end of it, my team.']);
     startWeek();
   }
 
@@ -601,24 +547,28 @@
     const ex = m.riskExposure; const exT = Object.values(ex).reduce((a, b) => a + b, 0) || 1;
     const safe = (ex.low + ex.medium) / exT;
     const evG = m.events.filter((e) => e.quality === 'good').length, evN = m.events.length || 1;
-    const cardPct = m.cards.total ? m.cards.good / m.cards.total : 0;
+    const ordPct = m.orders && m.orders.total ? m.orders.good / m.orders.total : 0;
+    const qa = VB.qSummary(S);
+    const qPct = qa.a ? qa.c / qa.a : 0;
     const winPct = games ? wins / games : 0;
-    let score = 25 * winPct + 30 * safe + 25 * (evG / evN) + 20 * cardPct - 4 * m.earlyReturns - (m.collapse ? 15 : 0) + Math.min(5, m.traitShifts);
+    let score = 20 * winPct + 25 * safe + 20 * (evG / evN) + 10 * ordPct + 25 * qPct - 4 * m.earlyReturns - (m.collapse ? 15 : 0) + Math.min(5, m.traitShifts);
     score = Math.max(0, Math.min(100, Math.round(score)));
     const grade = score >= 85 ? 'A' : score >= 72 ? 'B' : score >= 58 ? 'C' : score >= 45 ? 'D' : 'F';
     const final = S.results.find((r) => r.final);
-    return { games, wins, safe, evG, evN, cardPct, score, grade, final, ex, exT };
+    return { games, wins, safe, evG, evN, ordPct, qa, score, grade, final, ex, exT };
   }
   function endReport() {
-    setView('report');
+    setView('report'); S.over = true;
+    try { localStorage.removeItem('vb_autosave'); } catch (e) { /* */ }
     VB.Arena.setMode && VB.Arena.setMode('title');
     $('#topbar').classList.add('hidden');
     const R = computeReport(), m = S.metrics;
     const pct = (x) => Math.round(x * 100) + '%';
-    const exBar = ['low', 'medium', 'high', 'very high'].map((k) => `<i style="width:${(R.ex[k] / R.exT) * 100}%;background:${VB.RISK_COLORS[k]}" data-tip="${k}: ${R.ex[k]} player-matches"></i>`).join('');
-    const evs = m.events.map((e) => `<li class="${e.quality}"><b>${esc(e.title)}</b> — ${esc(e.choice)} <em>${VB.CONCEPTS[e.concept] ? VB.CONCEPTS[e.concept].ref + ' ' + esc(VB.CONCEPTS[e.concept].name) : ''}</em></li>`).join('');
-    const injs = m.injuries.map((i) => `<li>S${i.season} W${i.week}: <b>${esc(i.name)}</b> — ${esc(i.type)} <small class="${i.kind}">${i.kind}</small>${i.weeks ? ` (${i.weeks} wk)` : ''}</li>`).join('') || '<li>None. Remarkable.</li>';
+    const exBar = ['low', 'medium', 'high', 'very high'].map((k) => `<i style="width:${(R.ex[k] / R.exT) * 100}%;background:${VB.RISK_COLORS[k]}" title="${k}: ${R.ex[k]} player-matches"></i>`).join('');
+    const evs = m.events.map((e) => `<li class="${e.quality}"><b>${esc(e.title)}</b>: ${esc(e.choice)} <em>${VB.CONCEPTS[e.concept] ? VB.CONCEPTS[e.concept].ref + ' ' + esc(VB.CONCEPTS[e.concept].name) : ''}</em></li>`).join('');
+    const injs = m.injuries.map((i) => `<li>S${i.season} W${i.week}: <b>${esc(i.name)}</b>, ${esc(i.type)} <small class="${i.kind}">${i.kind}</small>${i.weeks ? ` (${i.weeks} wk)` : ''}</li>`).join('') || '<li>None. Remarkable.</li>';
     const outcome = m.collapse ? 'TEAM COLLAPSE' : R.final ? (R.final.us > R.final.them ? 'CHAMPIONS' : 'FINALISTS') : 'SEASON COMPLETE';
+    const weakest = Object.entries(R.qa.terms).filter(([, r]) => r.a >= 2).sort((a, b) => a[1].c / a[1].a - b[1].c / b[1].a).slice(0, 3).map(([t]) => t);
     screen(`<div class="report" id="report">
       <div class="rep-head"><div><div class="ev-tag">COACH'S REPORT</div><h1>${outcome}</h1>
         <label class="sname">Student name <input id="sname" placeholder="Your name" /></label></div>
@@ -627,109 +577,106 @@
         <div class="rep-box"><h3>Results</h3><div class="big">${R.wins}–${R.games - R.wins}</div>
           <div>Season 1: ${S.record[1].w}–${S.record[1].l} · Season 2: ${S.record[2].w}–${S.record[2].l}</div>
           ${R.final ? `<div>Final vs The Commissioner's Chosen: ${R.final.us}–${R.final.them}</div>` : ''}</div>
-        <div class="rep-box"><h3>Injury risk management <small>B.3</small></h3><div class="big">${pct(R.safe)}</div><div>of player-matches at an acceptable risk (low/medium)</div>
+        <div class="rep-box"><h3>Command terms</h3><div class="big">${R.qa.a ? Math.round((100 * R.qa.c) / R.qa.a) + '%' : '–'}</div><div>${R.qa.c}/${R.qa.a} correct</div>${weakest.length ? `<div class="small muted">Practise next: ${weakest.join(', ')}</div>` : ''}</div>
+        <div class="rep-box"><h3>Injury risk <small>B.3</small></h3><div class="big">${pct(R.safe)}</div><div>of player-matches at an acceptable risk (low/medium)</div>
           <div class="exbar">${exBar}</div><div class="small muted">Full rehabs: ${m.rehabFull} · Early returns: ${m.earlyReturns}</div></div>
-        <div class="rep-box"><h3>Locker-room decisions <small>C.1</small></h3><div class="big">${R.evG}/${m.events.length}</div><div>strong coaching calls</div></div>
-        <div class="rep-box"><h3>Training targeting</h3><div class="big">${pct(R.cardPct)}</div><div>of ${m.cards.total} training cards were well-targeted</div><div class="small muted">Personality shifts achieved: ${m.traitShifts} · Swaps: ${m.swaps}</div></div>
+        <div class="rep-box"><h3>Coaching calls <small>C.1</small></h3><div class="big">${R.evG}/${m.events.length}</div><div>strong locker-room calls</div><div class="small muted">At-risk players given recovery/rehab: ${pct(R.ordPct)} · Trait shifts: ${m.traitShifts} · Swaps: ${m.swaps}</div></div>
       </div>
+      <div class="rep-box"><h3>Command-term accuracy by season</h3>${termTable(true)}</div>
       <div class="rep-grid two">
         <div class="rep-box"><h3>Decisions</h3><ul class="evlist">${evs || '<li>No events.</li>'}</ul></div>
         <div class="rep-box"><h3>Injuries (${m.injuries.length})</h3><ul class="evlist">${injs}</ul></div>
       </div>
-      <div class="rep-box"><h3>Concepts discovered: ${S.notebook.length}/${Object.keys(VB.CONCEPTS).length}</h3><div class="concept-tags">${S.notebook.map((c) => `<span data-tip="${esc(VB.CONCEPTS[c].text)}">${VB.CONCEPTS[c].ref} ${esc(VB.CONCEPTS[c].name)}</span>`).join('')}</div></div>
+      <div class="rep-box"><h3>Concepts discovered: ${S.notebook.length}/${Object.keys(VB.CONCEPTS).length}</h3><div class="concept-tags">${S.notebook.map((c) => `<span title="${esc(VB.CONCEPTS[c].text)}">${VB.CONCEPTS[c].ref} ${esc(VB.CONCEPTS[c].name)}</span>`).join('')}</div></div>
       <div class="rep-box"><h3>Reflect</h3><ol class="reflect">
         <li>Pick one injury from your run. Name its internal and external risk factors. What would have lowered the likelihood or the severity?</li>
-        <li>Which player's Big Five profile most changed how you coached them? Give one behaviour it made more likely.</li>
-        <li>When did mental toughness help your team, and when did it become a problem? Where did self-compassion fit in?</li></ol></div>
+        <li>Which player's Big Five profile most changed how you coached them? Describe one behaviour it made more likely, then explain why.</li>
+        <li>Choose the command term you missed most. Write its definition, then answer one question from the game using it.</li></ol></div>
       <div class="modal-btns no-print"><button class="btn ghost" data-act="copy">Copy report text</button><button class="btn ghost" data-act="print">Print / PDF</button><button class="btn primary" data-act="new">New run</button></div>
     </div>`);
   }
   function reportText() {
     const R = computeReport(), m = S.metrics;
     const name = ($('#sname') && $('#sname').value) || '(no name)';
+    const s1 = VB.qSummary(S, 1), s2 = VB.qSummary(S, 2);
+    const terms = Object.keys(VB.TERMS).filter((t) => s1.terms[t] || s2.terms[t]).map((t) => {
+      const f = (r) => (r && r.a ? `${Math.round((100 * r.c) / r.a)}% (${r.c}/${r.a})` : '-');
+      return ` - ${t}: S1 ${f(s1.terms[t])} | S2 ${f(s2.terms[t])}`;
+    });
     return [
-      `VAULTBALL COACH — REPORT`, `Student: ${name}`, `Grade: ${R.grade} (${R.score}/100)${m.collapse ? ' — TEAM COLLAPSE' : ''}`,
+      'VAULTBALL COACH REPORT', `Student: ${name}`, `Grade: ${R.grade} (${R.score}/100)${m.collapse ? ' (TEAM COLLAPSE)' : ''}`,
       `Record: ${R.wins}-${R.games - R.wins} (S1 ${S.record[1].w}-${S.record[1].l}, S2 ${S.record[2].w}-${S.record[2].l})`,
+      `Command terms: ${R.qa.c}/${R.qa.a} correct overall. S1 ${s1.pct ?? '-'}%, S2 ${s2.pct ?? '-'}%${s1.a && s2.a ? ` (change ${s2.pct - s1.pct > 0 ? '+' : ''}${s2.pct - s1.pct}%)` : ''}`, ...terms,
       `Acceptable-risk player-matches: ${Math.round(R.safe * 100)}% | Injuries: ${m.injuries.length} (${m.injuries.filter((i) => i.kind === 'chronic').length} chronic) | Full rehabs: ${m.rehabFull} | Early returns: ${m.earlyReturns}`,
-      `Strong locker-room calls: ${R.evG}/${m.events.length} | Well-targeted training: ${Math.round(R.cardPct * 100)}% | Trait shifts: ${m.traitShifts}`,
-      `Decisions:`, ...m.events.map((e) => ` - [${e.quality}] ${e.title}: ${e.choice}`),
-      `Injuries:`, ...m.injuries.map((i) => ` - S${i.season}W${i.week} ${i.name}: ${i.type} (${i.kind})`),
+      `Strong locker-room calls: ${R.evG}/${m.events.length} | At-risk players given recovery: ${Math.round(R.ordPct * 100)}% | Trait shifts: ${m.traitShifts}`,
+      'Decisions:', ...m.events.map((e) => ` - [${e.quality}] ${e.title}: ${e.choice}`),
+      'Injuries:', ...m.injuries.map((i) => ` - S${i.season}W${i.week} ${i.name}: ${i.type} (${i.kind})`),
       `Concepts: ${S.notebook.map((c) => VB.CONCEPTS[c].name).join(', ')}`,
     ].join('\n');
   }
 
   // ======================================================================
+  function notebook() {
+    const all = Object.keys(VB.CONCEPTS);
+    modal(`<div class="nb"><button class="x" data-act="close-modal">✕</button><h2>Coach's Notebook <small>${S.notebook.length}/${all.length}</small></h2>
+      <div class="nb-grid">${all.map((c) => { const k = VB.CONCEPTS[c]; const has = S.notebook.includes(c); return `<div class="nbc ${has ? '' : 'locked'}"><small>${k.ref}</small><b>${has ? esc(k.name) : '???'}</b>${has ? `<p>${esc(k.text)}</p>` : ''}</div>`; }).join('')}</div>
+      <h3>Command terms</h3><div class="nb-terms">${Object.keys(VB.TERMS).map((t) => `<div><b>${t}</b><small>L${VB.TERMS[t].lvl}</small><p>${VB.TERMS[t].def}</p></div>`).join('')}</div></div>`, 'nb-modal', true);
+  }
+
   async function onClick(e) {
-    const t = e.target.closest('[data-act],[data-sp],.tcard,.pcard.mini,.slot,.bslot');
-    if (!t) return;
-    const act = t.dataset.act;
-    if (act === 'notebook') return openNotebook();
-    if (act === 'new') { UI.closeModal(); return startRun(); }
-    if (act === 'how') return howModal();
-    if (act === 'close-modal') return UI.closeModal();
-    if (act === 'nb-close' || e.target.id === 'nb-close') return closeNotebook();
-    if (t.dataset.sp !== undefined) { U.speed = +t.dataset.sp; document.querySelectorAll('[data-sp]').forEach((b) => b.className = 'btn small ' + (+b.dataset.sp === U.speed ? 'primary' : 'ghost')); return; }
-    if (act === 'to-plan') return offseasonPlan();
-    if (act === 'plan-rehab') { PLAN.rehab[t.dataset.id] = true; return renderPlan(); }
-    if (act === 'plan-maint') { PLAN.rehab[t.dataset.id] = false; return renderPlan(); }
-    if (act === 'plan-focus') { PLAN.focus = t.dataset.f; return renderPlan(); }
-    if (act === 'plan-go') return applyPlan();
-    if (act === 'copy') { const txt = reportText(); try { await navigator.clipboard.writeText(txt); UI.toast('Report copied to clipboard.', 'info'); } catch (_) { UI.modal(`<textarea class="copybox">${esc(txt)}</textarea><div class="modal-btns"><button class="btn primary" data-act="close-modal">Close</button></div>`); } return; }
-    if (act === 'print') return window.print();
-
-    if (U.view === 'market') {
-      if (act === 'rel') { U.relSel = U.relSel === t.dataset.id ? null : t.dataset.id; return renderMarket(); }
-      if (act === 'mk') { U.mkSel = t.dataset.id; U.flip = false; return renderMarket(); }
-      if (act === 'scout') {
-        const mp = S.market.find((p) => p.id === U.mkSel);
-        if (mp && S.scoutPoints > 0 && !mp.known[t.dataset.k]) { mp.known[t.dataset.k] = true; S.scoutPoints--; S.metrics.scouting[t.dataset.k]++; if (t.dataset.k === 'S') VB.unlock(S, 'self_report'); flush(); }
-        return renderMarket();
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const act = el.dataset.act, id = el.dataset.id;
+    switch (act) {
+      case 'new': S = null; U.sel = null; return startRun();
+      case 'continue': { try { const st = await VB.Save.decode(localStorage.getItem('vb_autosave')); return startRun(st); } catch (err) { UI.toast('Could not load the autosave.', 'bad'); } return; }
+      case 'code': return codeModal();
+      case 'load-code': { try { const st = await VB.Save.decode($('#codein').value); UI.closeModal(); return startRun(st); } catch (err) { $('#codeerr').textContent = 'That code did not work. Check you copied all of it.'; } return; }
+      case 'save': return showSave();
+      case 'copy-code': { const t = $('#codeout'); t.select(); try { await navigator.clipboard.writeText(t.value); } catch (err) { document.execCommand('copy'); } UI.toast('Save code copied', 'info'); return; }
+      case 'how': return howModal();
+      case 'close-modal': return UI.closeModal();
+      case 'notebook': return notebook();
+      case 'trait': {
+        const p = VB.byId(S, el.dataset.pid) || (S.market || []).find((x) => x.id === el.dataset.pid);
+        if (!p) return;
+        modal(UI.traitDialog(p, el.dataset.t), 'trait-modal', true);
+        VB.unlock(S, 'big5_' + el.dataset.t); flushConcepts();
+        return;
       }
-      if (act === 'flip') { U.flip = !U.flip; return renderMarket(); }
-      if (act === 'sign') return signPlayer();
-      if (act === 'mk-done') { const then = MK.then; MK = null; return then(); }
-      return;
-    }
-
-    if (U.view !== 'hub') return;
-    if (act === 'go') return goToMatch();
-    if (act === 'tab-player') { U.tab = 'player'; return renderHub(); }
-    if (act === 'tab-team') { U.tab = 'team'; return renderHub(); }
-    if (act === 'flip') { U.flip = !U.flip; return renderHub(); }
-    if (act === 'rest') { const p = VB.byId(S, U.sel); if (p) { p.rest = !p.rest; } return renderHub(); }
-    if (act === 'swap') { U.swapFrom = U.swapFrom === U.sel ? null : U.sel; if (U.swapFrom) UI.toast('Now click the slot to move to.', 'info', 2000); return renderHub(); }
-    if (act === 'cancel-card') { U.card = null; return renderHub(); }
-    if (act === 'play-team') {
-      const res = VB.playCard(S, U.card, null);
-      if (!res.ok) { UI.toast(esc(res.text), 'bad'); return; }
-      const key = res && S.played[S.played.length - 1].key;
-      UI.toast(`${esc(res.text)}<div class="fit ${res.good ? 'good' : 'meh'}">${res.good ? '✓ Well-targeted' : '△ Low value right now — ' + esc(CARD_HINTS[key])}</div>`, 'info', 5200);
-      U.card = null; renderHub(); flush(); return;
-    }
-    if (t.classList.contains('tcard')) {
-      const i = +t.dataset.idx; const c = VB.CARDS[S.hand[i]];
-      if (S.focus < c.cost) { UI.toast('Not enough Focus this week.', 'bad'); return; }
-      U.card = U.card === i ? null : i;
-      return renderHub();
-    }
-    if (t.classList.contains('pcard')) {
-      const id = t.dataset.id;
-      if (U.card !== null && VB.CARDS[S.hand[U.card]].target === 'player') return playOn(id);
-      if (U.swapFrom && U.swapFrom !== id) { const s = t.closest('.slot,.bslot'); const dest = s.classList.contains('bslot') ? { b: +s.dataset.b } : { r: +s.dataset.r, l: +s.dataset.l }; return movePlayer(U.swapFrom, dest); }
-      U.sel = U.sel === id ? null : id; U.tab = 'player'; U.flip = false;
-      return renderHub();
-    }
-    if ((t.classList.contains('slot') || t.classList.contains('bslot')) && U.swapFrom) {
-      const dest = t.classList.contains('bslot') ? { b: +t.dataset.b } : { r: +t.dataset.r, l: +t.dataset.l };
-      return movePlayer(U.swapFrom, dest);
+      case 'sel': {
+        if (U.swapFrom && U.swapFrom !== id) { swapPlayers(U.swapFrom, id); U.swapFrom = null; U.sel = id; renderHub(); return; }
+        U.sel = id; renderHub();
+        if (window.innerWidth < 900) $('#detail').scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+      case 'sel-empty': {
+        if (!U.swapFrom) return;
+        const w = el.dataset.where, from = VB.findSlot(S, U.swapFrom);
+        const put = (pos, v) => { if (pos.row >= 0) S.lineup[pos.row][pos.lane] = v; else S.bench[pos.lane] = v; };
+        put(from, null);
+        if (w[0] === 'b') S.bench[+w[1]] = U.swapFrom; else { const [r, l] = w.split(',').map(Number); S.lineup[r][l] = U.swapFrom; }
+        U.swapFrom = null; S.synergy = VB.computeSynergy(S); renderHub(); return;
+      }
+      case 'swap': U.swapFrom = id; renderHub(); return;
+      case 'swap-cancel': U.swapFrom = null; renderHub(); return;
+      case 'order': { const p = VB.byId(S, id); p.order = el.dataset.o; renderHub(); return; }
+      case 'all-order': S.roster.forEach((p) => { if (!VB.isOut(p)) p.order = el.dataset.o; }); renderHub(); UI.toast(`All healthy players: ${VB.ORDERS[el.dataset.o].name}`, 'info'); return;
+      case 'aura': { const a = S.synergy.auras.find((x) => x.id === el.dataset.a); if (a) UI.toast(`${a.name}: ${a.desc}`, a.good ? 'good' : 'bad'); return; }
+      case 'to-match': return goToMatch();
+      case 'to-plan': return renderPlan();
+      case 'plan-go': return applyPlan(el.dataset.f);
+      case 'camp': return endCamp(el.dataset.f);
+      case 'mk': U.mkSel = id; return renderMarket();
+      case 'rel': U.relSel = U.relSel === id ? null : id; return renderMarket();
+      case 'scout': { const mp = S.market.find((p) => p.id === U.mkSel); if (mp && S.scoutPoints > 0) { S.scoutPoints--; mp.known.O = true; S.metrics.scouting.O++; VB.unlock(S, 'lots'); flushConcepts(); } return renderMarket(); }
+      case 'sign': return signPlayer();
+      case 'mk-done': return marketDone();
+      case 'copy': { const t = reportText(); try { await navigator.clipboard.writeText(t); UI.toast('Report copied', 'info'); } catch (err) { modal(`<textarea rows="16" style="width:100%">${esc(t)}</textarea><div class="modal-btns"><button class="btn" data-act="close-modal">Close</button></div>`, '', true); } return; }
+      case 'print': return window.print();
     }
   }
 
-  function openNotebook() { if (!S) return; const n = $('#notebook'); n.innerHTML = UI.notebook(S); n.classList.remove('hidden'); }
-  function closeNotebook() { $('#notebook').classList.add('hidden'); }
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNotebook(); });
-
-  // debug / testing hook
-  window.VBDebug = { get state() { return S; }, U };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  window.VBDebug = { get state() { return S; }, U, startRun, endReport };
+  window.addEventListener('DOMContentLoaded', boot);
 })();

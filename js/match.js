@@ -104,13 +104,14 @@
     }
     push(pl) { pl.q = this.q; pl.score = [this.us, this.them]; this.plays.push(pl); return pl; }
 
-    quarter() {
+    quarter(n) {
+      n = n || 3;
       this.q++;
       const plays0 = this.plays.length;
       // fatigue rises through the match
       this.each((p) => { this.live[p.id].fat = clamp(this.live[p.id].fat + 7 * (1 - p.sk.fit / 200) + (this.half === 'tempo' ? 4 : 0), 0, 100); });
       const order = [];
-      for (let i = 0; i < 3; i++) for (let l = 0; l < 3; l++) order.push(['us', l], ['them', l]);
+      for (let i = 0; i < n; i++) for (let l = 0; l < 3; l++) order.push(['us', l], ['them', l]);
       VB.shuffle(order).forEach(([side, lane]) => {
         const clutch = this.q === 4 && Math.abs(this.us - this.them) <= 8;
         this.possession(side, lane, clutch);
