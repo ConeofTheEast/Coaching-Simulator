@@ -138,6 +138,7 @@
       this.wrap.classList.add('on');
       this.resize();
       this.bindInput();
+      VB.sfx('whistle');
       this.say(this.mode === 'attack' ? `${this.playName()}. Attack!` : `Defend: ${this.playName()}`, 1.6);
       this.last = performance.now();
       const loop = (now) => {
@@ -300,6 +301,7 @@
       const tx = to.x + to.vx * lead * 0.8, tz = to.z + to.vz * lead * 0.8;
       Object.assign(this.ball, { state: 'pass', holder: null, from, to, sx: from.x, sz: from.z, tx, tz, t: 0, dur: Math.hypot(tx - from.x, tz - from.z) / spd, forceComplete, risky });
       this.passer = from;
+      VB.sfx('pass');
     }
     stepBall(dt) {
       const b = this.ball;
@@ -321,6 +323,7 @@
         }
         if (k >= 1) {
           b.state = 'held'; b.holder = b.to;
+          VB.sfx('catch');
           if (b.to.team === 'us' && this.mode === 'attack') { this.ctrl = b.to; this.addFx(b.x, b.z, OUR, 10); this.result.passes = (this.result.passes || 0) + 1; this.passAssist = b.from; }
           if (b.to.team === 'them') this.passAssist = b.from;
         }
@@ -336,6 +339,7 @@
       const b = this.ball;
       b.state = 'held'; b.holder = d;
       this.addFx(d.x, d.z, '#ff3b4e', 18); this.shake = 1;
+      VB.sfx(d.team === 'them' ? 'miss' : 'steal');
       if (d.team === 'them') { this.finish('Intercepted! Turnover.'); }
       else { this.result.steals = (this.result.steals || 0) + 1; this.finish('INTERCEPTED! Stop!'); }
     }
@@ -350,7 +354,7 @@
         if (Math.hypot(d.x - h.x, d.z - h.z) < 1.25) {
           // contact: tackle
           this.tackleCD = this.t + 1.2;
-          this.addFx(h.x, h.z, '#ffd23f', 14); this.shake = 0.8;
+          this.addFx(h.x, h.z, '#ffd23f', 14); this.shake = 0.8; VB.sfx('tackle');
           if (h.team === 'us') this.result.tackled = (this.result.tackled || 0) + 1; else this.result.tackles = (this.result.tackles || 0) + 1;
           this.down++;
           if (this.down > this.downs) return this.finish(h.team === 'us' ? 'Tackled on 3rd down. Turnover.' : 'Third tackle. Stop!');
@@ -440,7 +444,7 @@
     launchShot(h, prob, pts) {
       const b = this.ball;
       Object.assign(b, { state: 'shot', holder: null, sx: h.x, sz: h.z, t: 0, dur: 0.55 + this.distToHoop(h) / 45, prob, pts, shooter: h, done: false });
-      this.slow = 0.55;
+      this.slow = 0.55; VB.sfx('shot');
       setTimeout(() => (this.slow = 1), 600);
     }
     resolveShot() {
@@ -448,14 +452,14 @@
       const made = R() < b.prob;
       const ourShot = b.shooter.team === 'us';
       if (made) {
-        this.addFx(0, HOOP_Z, ourShot ? OUR : this.oppColor, 40); this.shake = 1.4;
+        this.addFx(0, HOOP_Z, ourShot ? OUR : this.oppColor, 40); this.shake = 1.4; VB.sfx(ourShot ? 'score' : 'miss');
         if (ourShot) {
           this.result.us += b.pts;
           this.result.scorer = b.shooter.p; this.result.assist = this.passAssist && this.passAssist !== b.shooter ? this.passAssist.p : null;
           this.finish(b.pts === 3 ? 'VAULT! +3' : 'SCORE! +2');
         } else { this.result.them += b.pts; this.finish(`${this.opp.name.split(' ')[0]} score +${b.pts}`); }
       } else {
-        this.addFx(0, HOOP_Z, '#888', 12);
+        this.addFx(0, HOOP_Z, '#888', 12); VB.sfx(ourShot ? 'miss' : 'steal');
         this.finish(ourShot ? 'Rimmed out. Turnover.' : 'Miss! Stop!');
       }
     }
@@ -485,7 +489,7 @@
       if (d > 2.6) { this.say('Too far to steal', 0.7); return; }
       const f = c.p.form || {};
       const pr = clamp(0.24 + (c.p.sk.def + (f.def || 0) * 6 - h.rating) / 90 + (this.play === 'press' ? 0.1 : 0), 0.08, 0.7);
-      if (R() < pr) { this.addFx(h.x, h.z, OUR, 24); this.shake = 1; this.result.steals = (this.result.steals || 0) + 1; this.ball.holder = c; this.finish('STEAL! Stop!'); }
+      if (R() < pr) { VB.sfx('steal'); this.addFx(h.x, h.z, OUR, 24); this.shake = 1; this.result.steals = (this.result.steals || 0) + 1; this.ball.holder = c; this.finish('STEAL! Stop!'); }
       else { c.stun = 0.8; this.say('Missed the steal!', 0.8); this.addFx(c.x, c.z, '#ff8c32', 8); }
     }
     switchAction() {
@@ -738,6 +742,7 @@
         const answer = (i) => {
           if (done) return; done = true; clearInterval(timer);
           const ok = i === q.answer;
+          VB.sfx(ok ? 'right' : 'wrong');
           const btns = el.querySelectorAll('.qopt');
           btns.forEach((b, k) => { b.disabled = true; if (k === q.answer) b.classList.add('right'); else if (k === i) b.classList.add('wrong'); });
           const foot = el.querySelector('.qfoot');

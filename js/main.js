@@ -136,7 +136,7 @@
       <div class="tb-mid"><span class="chip">${S.phase === 'camp' ? 'SUMMER CAMP' : S.phase === 'market' ? 'OFFSEASON' : `S${S.season} · WEEK ${S.week}/${VB.weeksInSeason(S)}`}</span>
       <span class="chip">${rec.w}–${rec.l}</span>
       ${opp ? `<span class="chip opp" style="--c:#${opp.color.toString(16).padStart(6, '0')}">NEXT: <b>${esc(opp.name)}</b> <small>${opp.rating} · ${VB.SURFACES[opp.surface].name}${opp.aggressive ? ' · aggressive' : ''}</small></span>` : ''}${extra || ''}</div>
-      <div class="tb-btns"><button class="btn ghost small" data-act="notebook">📓 <span class="hide-sm">Notebook</span></button><button class="btn ghost small" data-act="save">💾 <span class="hide-sm">Save code</span></button><button class="btn ghost small" data-act="how">?</button></div>`;
+      <div class="tb-btns"><button class="btn ghost small" data-act="notebook">📓 <span class="hide-sm">Notebook</span></button><button class="btn ghost small" data-act="save">💾 <span class="hide-sm">Save code</span></button><button class="btn ghost small" data-act="mute" title="Sound on/off">${VB.isMuted() ? '🔇' : '🔊'}</button><button class="btn ghost small" data-act="how">?</button></div>`;
   }
 
   function tile(id, where) {
@@ -635,6 +635,7 @@
       case 'save': return showSave();
       case 'copy-code': { const t = $('#codeout'); t.select(); try { await navigator.clipboard.writeText(t.value); } catch (err) { document.execCommand('copy'); } UI.toast('Save code copied', 'info'); return; }
       case 'how': return howModal();
+      case 'mute': VB.toggleMute(); el.textContent = VB.isMuted() ? '🔇' : '🔊'; return;
       case 'close-modal': return UI.closeModal();
       case 'notebook': return notebook();
       case 'trait': {
