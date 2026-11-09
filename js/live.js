@@ -193,6 +193,7 @@
     }
 
     update(dt) {
+      ['netT', 'rimT', 'boardT'].forEach((k) => { if (this[k] > 0) this[k] -= dt; });
       if (this.over) { this.t += dt; this.stepBall(dt); this.stepParticles(dt); return; }
       this.t += dt;
       this.clock -= dt;
@@ -357,8 +358,33 @@
       }
       if (b.state === 'shot') {
         b.t += dt; const k = clamp(b.t / b.dur, 0, 1);
-        b.x = b.sx + (0 - b.sx) * k; b.z = b.sz + (HOOP_Z - b.sz) * k; b.h = 2 + (9 - 2) * k + Math.sin(k * Math.PI) * (4 + b.dur * 4);
-        if (k >= 1 && !b.done) { b.done = true; this.resolveShot(); }
+        b.x = b.sx + (b.ax - b.sx) * k; b.z = b.sz + (b.az - b.sz) * k; b.h = 2 + (b.ah - 2) * k + Math.sin(k * Math.PI) * (4 + b.dur * 4);
+        if (k >= 1 && !b.done) {
+          b.done = true;
+          if (b.made) { b.state = 'drop'; b.vx = b.vz = 0; b.vh = -3; this.netT = 0.6; }
+          else {
+            // bounce away from the hoop, back towards the court
+            b.state = 'bounce';
+            const dx = b.ax, dz = b.az - HOOP_Z, m = Math.hypot(dx, dz) || 1;
+            if (b.miss === 'rim') { b.vx = (dx / m) * 4 + (R() - 0.5) * 2; b.vz = (dz / m) * 3 - 5; b.vh = 7; this.rimT = 0.35; }
+            else if (b.miss === 'board') { b.vx = b.ax * 1.5; b.vz = -7; b.vh = 2; this.boardT = 0.35; }
+            else { b.vx = (R() - 0.5) * 3; b.vz = -5; b.vh = 5; this.rimT = 0.35; }
+            VB.sfx(b.miss === 'board' ? 'board' : 'rim');
+            this.addFx(b.x, b.z, b.miss === 'board' ? '#3dfcff' : '#ff8c32', 10);
+          }
+          this.resolveShot();
+        }
+        return;
+      }
+      if (b.state === 'drop') { // falls through the net
+        b.vh -= 20 * dt; b.h = Math.max(0.4, b.h + b.vh * dt);
+        if (b.h <= 0.4) b.state = 'loose';
+        return;
+      }
+      if (b.state === 'bounce') { // off the rim / board, bouncing on the floor
+        b.x = clamp(b.x + b.vx * dt, -HALF_W, HALF_W); b.z = clamp(b.z + b.vz * dt, 1, FIELD_END - 1);
+        b.vh -= 25 * dt; b.h += b.vh * dt;
+        if (b.h < 0.4 && b.vh < 0) { b.h = 0.4; b.vh = -b.vh * 0.5; b.vx *= 0.7; b.vz *= 0.7; if (b.vh > 2.5) VB.sfx('catch'); if (b.vh < 1) { b.vh = 0; b.state = 'loose'; } }
       }
     }
     intercept(d) {
@@ -469,13 +495,24 @@
     }
     launchShot(h, prob, pts) {
       const b = this.ball;
-      Object.assign(b, { state: 'shot', holder: null, sx: h.x, sz: h.z, t: 0, dur: 0.55 + this.distToHoop(h) / 45, prob, pts, shooter: h, done: false });
+      const dist = this.distToHoop(h);
+      const made = R() < prob;
+      // aim point: the centre of the ring for a make; the rim, the backboard or short for a miss
+      let ax = 0, az = HOOP_Z, ah = 9, miss = null;
+      if (!made) {
+        const r = R();
+        miss = dist > ARC && r < 0.35 ? 'short' : r < 0.3 ? 'board' : 'rim';
+        if (miss === 'rim') { const a = R() * Math.PI * 2; ax = Math.cos(a) * 1.35; az = HOOP_Z + Math.sin(a) * 0.9; }
+        else if (miss === 'board') { ax = (R() < 0.5 ? -1 : 1) * (0.6 + R() * 1.2); az = HOOP_Z + 1.9; ah = 10.6; }
+        else { ax = (R() - 0.5) * 1.2; az = HOOP_Z - 1.4; ah = 8.9; }
+      }
+      Object.assign(b, { state: 'shot', holder: null, sx: h.x, sz: h.z, t: 0, dur: 0.55 + dist / 45, prob, pts, shooter: h, done: false, made, miss, ax, az, ah });
       this.slow = 0.55; VB.sfx('shot');
       setTimeout(() => (this.slow = 1), 600);
     }
     resolveShot() {
       const b = this.ball;
-      const made = R() < b.prob;
+      const made = b.made;
       const ourShot = b.shooter.team === 'us';
       if (made) {
         this.addFx(0, HOOP_Z, ourShot ? OUR : this.oppColor, 40); this.shake = 1.4; VB.sfx(ourShot ? 'score' : 'miss');
@@ -485,8 +522,9 @@
           this.finish(b.pts === 3 ? 'VAULT! +3' : 'SCORE! +2');
         } else { this.result.them += b.pts; this.finish(`${this.opp.name.split(' ')[0]} score +${b.pts}`); }
       } else {
-        this.addFx(0, HOOP_Z, '#888', 12); VB.sfx(ourShot ? 'miss' : 'steal');
-        this.finish(ourShot ? 'Rimmed out. Turnover.' : 'Miss! Stop!');
+        const how = { rim: 'Off the rim!', board: 'Off the backboard!', short: 'Short! Front rim.' }[b.miss];
+        setTimeout(() => VB.sfx(ourShot ? 'miss' : 'steal'), 250);
+        this.finish(ourShot ? `${how} Turnover.` : `${how} Stop!`);
       }
     }
     oppShoot(h, contestDist) {
@@ -673,7 +711,11 @@
       c.strokeStyle = '#ff8c32'; c.shadowColor = '#ff8c32'; c.lineWidth = 3;
       c.beginPath(); c.ellipse(ring.x, ring.y, ring.s * 1.4, ring.s * 0.45, 0, 0, Math.PI * 2); c.stroke(); c.shadowBlur = 0;
       c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1;
-      for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(ring.x + i * ring.s * 0.55, ring.y + ring.s * 0.3); c.lineTo(ring.x + i * ring.s * 0.3, ring.y + ring.s * 1.6); c.stroke(); }
+      const sw = this.netT > 0 ? Math.sin(this.t * 40) * ring.s * 0.25 * this.netT : 0;
+      if (this.netT > 0) { c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 1.6; }
+      for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(ring.x + i * ring.s * 0.55, ring.y + ring.s * 0.3); c.lineTo(ring.x + i * ring.s * 0.3 + sw, ring.y + ring.s * (1.6 + (this.netT > 0 ? 0.4 : 0))); c.stroke(); }
+      if (this.rimT > 0) { c.strokeStyle = `rgba(255,220,120,${this.rimT * 2.5})`; c.lineWidth = 6; c.shadowBlur = 20; c.shadowColor = '#ffb040'; c.beginPath(); c.ellipse(ring.x, ring.y, ring.s * 1.4, ring.s * 0.45, 0, 0, Math.PI * 2); c.stroke(); c.shadowBlur = 0; }
+      if (this.boardT > 0) { c.fillStyle = `rgba(61,252,255,${this.boardT * 1.6})`; c.fillRect(bb.x, bb.y, bb2.x - bb.x, bb2.y - bb.y); }
     }
     drawBall() {
       const c = this.ctx, b = this.ball;
