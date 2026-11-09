@@ -496,7 +496,7 @@
     S.synergy = VB.computeSynergy(S);
     renderMarket(); autosave();
   }
-  async function marketDone() {
+  function marketDone() {
     const then = S.mk.then;
     S.market = []; S.mk = null;
     if (then === 'camp') return summerCamp();
@@ -521,7 +521,7 @@
       <div class="focus-opts">${CAMP.map((f) => `<button class="focus-card" data-act="camp" data-f="${f.id}"><b>${f.name}</b><span>${f.desc}</span></button>`).join('')}</div></div>`);
     autosave();
   }
-  async function endCamp(id) {
+  function endCamp(id) {
     const clamp = VB.clamp;
     S.roster.forEach((p) => {
       if (['sht', 'pas', 'def'].includes(id)) { p.sk[id] = clamp(p.sk[id] + 3, 1, 99); p.form = { sht: 0, pas: 0, def: 0 }; p.form[id] = 2; }
