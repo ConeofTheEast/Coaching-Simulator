@@ -141,6 +141,7 @@
       VB.sfx('whistle');
       this.say(this.mode === 'attack' ? `${this.playName()}. Attack!` : `Defend: ${this.playName()}`, 1.6);
       this.last = performance.now();
+      this.tutorial();
       const loop = (now) => {
         if (this.dead) return;
         const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now;
@@ -150,6 +151,31 @@
       };
       requestAnimationFrame(loop);
       return new Promise((res) => (this.resolve = res));
+    }
+    tutorial() {
+      const key = 'vb_tut_' + this.mode;
+      let seen = false; try { seen = localStorage.getItem(key) === '1'; } catch (e) { /* storage blocked */ }
+      if (seen) return;
+      const touch = VB.isTouch();
+      const lines = this.mode === 'attack'
+        ? [touch ? 'Drag the <b>stick</b> to run with the ball.' : '<b>WASD / arrows</b> to run with the ball.',
+           touch ? '<b>PASS</b> throws to the teammate marked ▼ (aim with the stick).' : '<b>Space</b> passes to the teammate marked ▼, or <b>click</b> any teammate.',
+           touch ? '<b>SHOOT</b> when you are close to the hoop. Inside the pink arc = 2, outside = 3.' : '<b>E</b> shoots. Inside the pink arc = 2, outside = 3.',
+           'Every shot and long, risky pass asks a <b>command-term question</b>. Right = big boost. Wrong = turnover.',
+           'Defenders tackle on contact: 3 tackles and you lose the ball.']
+        : [touch ? 'Drag the <b>stick</b> to move your defender (yellow ring).' : '<b>WASD / arrows</b> move your defender (yellow ring).',
+           touch ? '<b>STEAL</b> when you are right next to the ball carrier. It asks a question.' : '<b>Space</b> steals when you are next to the ball carrier. It asks a question.',
+           touch ? '<b>SWITCH</b> jumps to the defender nearest the ball.' : '<b>E</b> or <b>Q</b> switches to the defender nearest the ball.',
+           'Be close when they shoot to <b>contest</b>: answer right and the shot is much harder.'];
+      this.paused = true;
+      const el = document.createElement('div');
+      el.className = 'tut';
+      el.innerHTML = `<div class="tutc"><div class="ev-tag">${this.mode === 'attack' ? 'ATTACK' : 'DEFENCE'} · HOW TO PLAY</div><ul>${lines.map((l) => `<li>${l}</li>`).join('')}</ul><button class="btn primary">Let's go ▸</button></div>`;
+      this.wrap.appendChild(el);
+      const go = () => { el.remove(); this.paused = false; this.last = performance.now(); try { localStorage.setItem(key, '1'); } catch (e) { /* */ } window.removeEventListener('keydown', kgo); };
+      const kgo = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopImmediatePropagation(); go(); } };
+      el.querySelector('button').onclick = go;
+      window.addEventListener('keydown', kgo, true);
     }
     playName() { const list = VB.PLAYS[this.mode === 'attack' ? 'attack' : 'defense']; return (list.find((p) => p.id === this.play) || {}).name || ''; }
 

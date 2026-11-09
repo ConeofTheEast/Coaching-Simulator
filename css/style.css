@@ -276,6 +276,11 @@ a { color: var(--cyan); cursor: pointer; }
 .tbtns #tbtn1 { width: 96px; height: 96px; border-color: var(--cyan); background: rgba(61, 252, 255, 0.16); box-shadow: 0 0 16px rgba(61, 252, 255, 0.4); margin-bottom: 30px; }
 .tbtns button:active { transform: scale(0.94); }
 
+.tut { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(3, 2, 10, 0.55); z-index: 5; padding: 14px; }
+.tutc { background: rgba(14, 12, 40, 0.97); border: 1px solid var(--cyan); border-radius: 16px; padding: 16px 18px; max-width: 520px; box-shadow: 0 0 40px rgba(61, 252, 255, 0.3); animation: pop 0.2s; }
+.tutc ul { padding-left: 18px; line-height: 1.55; font-size: 14px; }
+.tutc b { color: var(--gold); }
+
 /* ---------- question overlay ---------- */
 #qbox { position: fixed; inset: 0; z-index: 70; display: none; align-items: center; justify-content: center; padding: 12px; background: rgba(3, 2, 10, 0.55); }
 #qbox.on { display: flex; }
