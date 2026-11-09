@@ -1,46 +1,55 @@
 # Vaultball Coach
 
-A roguelike coaching card game for IB Sports, Exercise and Health Science (SL). You coach a weak 12-player team in **Vaultball**, a futuristic mix of football and basketball played 9 v 9. Every player is a card with a Big Five personality profile, injury history, stats, age and health.
+A coaching game for IB Sports, Exercise and Health Science (SL). You coach a weak 12-player team in **Vaultball**, a futuristic cross between football and basketball played 9 v 9 with raised hoops. Every player has a Big Five personality, an injury history, points and assists per game, an age and a health score, and all of these change over the season.
 
-A run takes about 20–30 minutes and covers two seasons. In between come an offseason with rehab plans and up to 3 player swaps, a summer camp, then up to 2 more swaps.
+A run takes about 20–30 minutes and covers two seasons. In between come an offseason focus, up to 3 player swaps, a summer camp, then up to 2 more swaps.
 
 ## Play
 
-Open `index.html` in Chrome or Edge, either by double-clicking it or from any static web host such as GitHub Pages. You don't need to install or build anything. Three.js is bundled in `js/three.min.js`.
+Open `index.html` in Chrome or Edge, either by double-clicking it or from GitHub Pages. You don't need to install or build anything. It works on Chromebooks, laptops and phones, and on a touch device it switches to an on-screen stick and buttons automatically.
 
-## What it teaches (SL content only, AHL skipped)
+**Save codes:** press 💾 *Save code* at any time and copy the code. Paste it on the title screen under *Continue with a save code* to carry on, on any device. The game also autosaves in the browser.
+
+## The loop
+
+1. **Weekly orders.** Each player gets one order: Shooting drills, Team drills, Defence drills, Rest & prehab, Rehab or Mental skills. A player's Conscientiousness decides whether they actually do it.
+2. **Locker-room event.** A short dilemma with a Big Five, mental-toughness or injury angle.
+3. **Match.** The simulation runs between **5 key drives that you play yourself**, on both attack and defence (Madden-style: call a play, then play it on a 2.5D field).
+4. **Film room.** You see why you won or lost, who got hurt and why, and your command-term score for the match.
+
+## Command terms (the playable part)
+
+- Every **shot** and every **long or risky pass** asks a question. On defence, contesting a shot asks one too.
+- The harder the play, the harder the term: Level 1 (State, Identify, Calculate…), then Level 2 (Outline, Describe, Distinguish, Interpret…), then Level 3 (Explain, Discuss, Evaluate, Suggest, To what extent…).
+- There are two question types:
+  - **Definitions:** IB command-term glossary, in both directions.
+  - **"Which response best answers this question?"** The wrong options fit a *different* term on the same content (too brief, no reason, one-sided).
+- Content items come from the IB SEHS **specimen papers for first assessment 2026** (Paper 1A, 1B and 2 markschemes), plus the textbook B.3 and C.1 content the game teaches. Each item names its source.
+- Get it right and the pass completes, or the shot gets a big accuracy boost. Get it wrong and you turn the ball over, with the correct answer shown. **Explain ▸** pauses play so you can read why. Otherwise play resumes after 3.5 s.
+- **Spaced repetition** uses Leitner-style boxes per term, weighted toward commonly confused groups (Describe/Explain/Outline, Discuss/Evaluate/To what extent, Compare/Compare and contrast/Distinguish, Suggest/Predict/Deduce).
+- Accuracy per term is tracked each season. The season review and the end report show the **% change** from Season 1 to Season 2.
+
+## What it teaches (SL content only)
 
 | Game mechanic | Textbook idea |
 |---|---|
-| Big Five pentagon on every card; traits act as **multipliers** on behaviour likelihood (adherence, clutch composure, passing, energy, new methods) | C.1.1 personality, traits vs states |
-| Team auras when a trait is high or low across the starting nine (Engine Room, Glue, Powder Keg, Silent Floor…) and links between neighbouring cards | C.1.1 Big Five and team dynamics |
-| Perfectionist player (high C + high N) who over-trains; Goal Setting card and event reframe it | C.1.1 adaptive vs maladaptive perfectionism |
-| Comfort-Zone Challenge card: a trait shifts only after the player *completes* 3 challenges; accepting isn't enough | C.1.1 personality can change (Hudson et al.) |
-| Team Bonding, "change the environment" event choices | C.1.1 interactionism, B = f(P, E) |
-| Market scouting with **L / O / T / S** data; self-report shows flattering values that get a reality check after signing | C.1.1 LOTS, C.1.2 limits of self-report |
-| 4Cs bars on the back of each card; Imagery, Goal Setting, Self-Talk and Arousal Regulation cards; Mindfulness block; Adversity Scrimmage | C.1.2 mental toughness, 4Cs, PST, mindfulness, challenge |
-| A very tough player with low self-compassion hides pain and skips rehab; the Self-Compassion card fixes it | C.1.2 the dark side of toughness, self-compassion |
-| Risk panel shows a 5×5 **likelihood × severity** matrix with the internal and external factors behind each | B.3.1 risk, internal and external risk factors |
-| Fatigue, training volume, previous unrehabbed injury, early return, age, stress/sleep, position, artificial surface, aggressive opponent, protective equipment, last-quarter fatigue | B.3.1 risk factors |
-| Acute injuries (contusion, strain, sprain, laceration, concussion, fracture) vs chronic overuse injuries (strain meter reaches 100) | B.3.1 injury types, acute vs chronic |
-| Prehab, Protective Gear, Rehab Session cards; offseason full rehab vs maintenance; concussion recovery that isn't linear | B.3.2 interventions |
+| Click any Big Five trait for a definition, high and low descriptions, textbook descriptors, a sport example and what it does to *this* player | C.1.1 Big Five |
+| Sprites show traits subtly: posture (E), brow and mouth tension plus a jitter (N), soft face and leaning in (A), neat or scruffy kit (C), hairstyle and colour (O). Skin tone and body type are random | C.1.1 traits shape behaviour |
+| Conscientiousness drives adherence. Openness scales mental-skills gains. High-N players get less time on clutch questions. Team auras (Glue, Friction, Powder Keg…) | C.1.1 traits as behaviour multipliers, team dynamics |
+| High C + high N players over-train | C.1.1 maladaptive perfectionism |
+| Market players show **self-reported** C, N and O. Observing them in training shows the real values | C.1.1 LOTS, C.1.2 self-report bias |
+| Mental skills order and camp, plus events on toughness and self-compassion | C.1.2 mental toughness, PST |
+| One-colour risk chip with its reasons; the likelihood × severity model (fatigue, load, unrehabbed injury, age, stress, position, surface, aggressive opponents) stays hidden | B.3.1 risk factors |
+| Rest & prehab, Rehab (2 sessions clears an old injury), offseason rehab block, concussion that doesn't recover in a straight line, acute vs overuse injuries | B.3.1–B.3.2 |
 
-## Not all chance
-
-Injuries are mostly predictable. Each match a player plays at **high** risk fills one exposure pip, and **very high** fills two. A match at low risk, or a week sitting out, drains one. When the third pip fills, the player gets injured. The game warns the coach before that match. Overuse injuries happen when the strain bar reaches 100. Only very-high-risk play carries a small extra chance of an accident, because risk is never zero.
-
-**Lose condition:** 3 players injured at the same time.
-
-## End-of-run report
-
-A grade, plus risk-management %, decision quality, training targeting, every injury and decision, the concepts discovered and three reflection prompts. Students can type their name, then **Copy report text** or **Print / PDF** to submit.
+**Lose condition:** 3 players injured at the same time. Injuries are mostly predictable: repeated high-risk matches lead to injury.
 
 ## Files
 
-- `js/data.js`: concepts, injuries, starting roster, opponents
-- `js/model.js`: players, risk, synergy, weekly processing
-- `js/cards.js`: training cards
-- `js/events.js`: locker-room encounters
-- `js/match.js`: match simulation and film-room recap
-- `js/arena.js`: 3D arena (Three.js)
-- `js/ui.js`, `js/main.js`: interface and game flow
+- `js/questions.js`: command terms, the exemplar bank from the specimen markschemes, and spaced repetition
+- `js/live.js`: playable key drives (2.5D field, controls, touch stick, question overlay)
+- `js/sprites.js`: deterministic vector-neon SVG sprites
+- `js/data.js`, `js/model.js`: content, players, risk, weekly orders
+- `js/events.js`, `js/match.js`: locker-room events and the simulated parts of each match
+- `js/arena.js`: 3D background (Three.js)
+- `js/ui.js`, `js/main.js`: interface, game flow, save codes and reports

@@ -215,7 +215,7 @@
     cands.slice(0, 2).forEach((c) => lines.push(c));
     res.injuries.forEach((i) => {
       const top = i.L.factors.filter((x) => x.d > 0).map((x) => x.label.toLowerCase()).slice(0, 3).join(', ') || 'contact';
-      lines.push({ text: `${i.p.name}: ${i.name} (${i.kind}). ${i.due ? 'Their exposure meter filled after repeated high-risk matches' : 'An accident at ' + i.cat.toUpperCase() + ' risk'} — ${top}.${i.weeks ? ` Out ${i.weeks} wk.` : ' Minor.'}`, concept: 'risk', tone: 'bad' });
+      lines.push({ text: `${i.p.name}: ${i.name} (${i.kind}). ${i.due ? 'Repeated matches at high risk caught up with them' : 'An accident at ' + i.cat.toUpperCase() + ' risk'}: ${top}.${i.weeks ? ` Out ${i.weeks} wk.` : ' Minor.'}`, concept: 'risk', tone: 'bad' });
     });
     if (!res.injuries.length) {
       const hi = Object.values(res.startRisk).filter((c) => c === 'high' || c === 'very high').length;
