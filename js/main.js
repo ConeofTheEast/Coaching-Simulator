@@ -49,6 +49,7 @@
     ['#screen', '#topbar', '#modal'].forEach((s) => $(s).addEventListener('click', onClick));
     $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && $('#modal').dataset.dismiss === '1') UI.closeModal(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#modal').dataset.dismiss === '1') UI.closeModal(); });
+    VB.initConceptTips && VB.initConceptTips();
     titleScreen();
   }
   function setView(v) { document.body.dataset.view = v; }
@@ -175,6 +176,7 @@
     <div class="hubbar">
       <div class="quick"><span class="small muted">Set all healthy players:</span>${ORDER_KEYS.filter((k) => k !== 'rehab').map((k) => `<button class="btn tiny ghost" data-act="all-order" data-o="${k}" title="${VB.ORDERS[k].name}">${VB.ORDERS[k].icon} ${VB.ORDERS[k].short}</button>`).join('')}</div>
       ${outN ? `<span class="warnchip">${outN} injured${outN >= 2 ? ': one more and you are at the limit!' : ''}</span>` : ''}
+      <button class="btn big ${S.drillWeek === S.season + '-' + S.week ? 'done' : ''}" data-act="drill" title="Answer an exam-style question for a training bonus">📝 Exam drill${S.drillWeek === S.season + '-' + S.week ? ' ✓' : ''}</button>
       <button class="btn primary big" data-act="to-match">Train & play ▸</button>
     </div>`);
   }
@@ -249,7 +251,7 @@
       $('#c-no').onclick = () => { UI.closeModal(); res(false); };
     });
   }
-  function conceptTag(c) { const k = VB.CONCEPTS[c]; return k ? ` <em class="cref" title="${esc(k.text)}">${k.ref} ${esc(k.name)}</em>` : ''; }
+  function conceptTag(c) { const k = VB.CONCEPTS[c]; return k ? ` <em class="cref" ${VB.conceptAttr(c)}>${k.ref} ${esc(k.name)}</em>` : ''; }
   function trainingSummary(lines) {
     return new Promise((res) => {
       lines.forEach((l) => l.concept && VB.unlock(S, l.concept));
@@ -270,7 +272,7 @@
         const verdict = { good: ['✓ Strong coaching', 'good'], ok: ['◐ Partly right', 'ok'], poor: ['✗ Risky call', 'poor'] }[r.quality];
         modal(`<div class="event"><div class="ev-tag">LOCKER ROOM</div><h2>${esc(e.title)}</h2><p class="ev-text">${esc(r.text)}</p>
           <div class="verdict ${verdict[1]}">${verdict[0]}</div>
-          ${con ? `<div class="concept-chip"><b>${con.ref} · ${esc(con.name)}</b> ${esc(con.text)}</div>` : ''}
+          ${con ? `<div class="concept-chip" ${VB.conceptAttr(r.concept)}><b>${con.ref} · ${esc(con.name)} <span class="ct-i">ⓘ</span></b> ${esc(con.text)}</div>` : ''}
           <div class="modal-btns"><button class="btn primary" id="ev-ok">To the match ▸</button></div></div>`, 'event-modal');
         $('#ev-ok').onclick = () => { UI.closeModal(); flushConcepts(); res(); };
       }));
@@ -416,7 +418,7 @@
     setView('plan'); topbar();
     screen(`<div class="plan"><div class="ev-tag">OFFSEASON</div><h1>Choose the summer focus</h1>
       <p class="muted">Everyone ages a year. Players aged 30+ lose a little fitness. Injured players heal over the break.</p>
-      <div class="focus-opts">${FOCUS.map((f) => `<button class="focus-card" data-act="plan-go" data-f="${f.id}"><b>${f.name}</b><span>${f.desc}</span><small>${VB.CONCEPTS[f.concept].ref} · ${esc(VB.CONCEPTS[f.concept].name)}</small></button>`).join('')}</div></div>`);
+      <div class="focus-opts">${FOCUS.map((f) => `<button class="focus-card" data-act="plan-go" data-f="${f.id}"><b>${f.name}</b><span>${f.desc}</span><small ${VB.conceptAttr(f.concept)}>${VB.CONCEPTS[f.concept].ref} · ${esc(VB.CONCEPTS[f.concept].name)}</small></button>`).join('')}</div></div>`);
   }
   function applyPlan(focus) {
     const clamp = VB.clamp;
@@ -450,21 +452,35 @@
     if (p.known.all || p.known.O) return { vals: p.b5, sr: false };
     return { vals: { O: p.selfReport.O, C: p.selfReport.C, E: p.b5.E, A: p.b5.A, N: p.selfReport.N }, sr: true };
   }
+  // Side-by-side comparison card. `other` is the player on the opposite side (for ▲/▼ deltas).
+  function cmpCard(p, other, isAgent) {
+    const sh = isAgent ? shownB5(p) : { vals: p.b5, sr: false };
+    const d = (v, w, rev) => { if (w == null) return ''; const x = Math.round(v - w); if (!x) return ''; const good = rev ? x < 0 : x > 0; return `<em class="dl ${good ? 'up' : 'dn'}">${x > 0 ? '▲' : '▼'}${Math.abs(x)}</em>`; };
+    const o = other || null;
+    const hist = p.history.length ? p.history.map((h) => `<li class="${h.cleared ? 'ok' : 'warn'}">${esc(VB.INJURIES[h.type].name)}${h.cleared ? ' ✓' : ''}</li>`).join('') : '<li class="muted">none</li>';
+    const sk = [['sht', 'Shooting'], ['pas', 'Passing'], ['def', 'Defence'], ['fit', 'Fitness']].map(([k, n]) => `<div><small>${n}</small><span class="sbar"><i style="width:${p.sk[k]}%"></i></span><b>${Math.round(p.sk[k])}</b>${o ? d(p.sk[k], o.sk[k]) : ''}</div>`).join('');
+    const ppg = p.stats.gp ? `${VB.ppg(p).toFixed(1)} pts · ${VB.apg(p).toFixed(1)} ast /g` : 'no games for you yet';
+    return `<div class="pcard cmpc">
+      <div class="cmp-top"><div class="rspr big">${UI.sprite(p, { bust: true, hurt: VB.isOut(p) })}</div><div><h3>${esc(p.name)}</h3>
+        <div class="pc-sub">${VB.ROLES[p.role].name} · age ${p.age}${o ? d(p.age, o.age, true) : ''}</div>
+        <div class="cmp-kpi"><span>OVR <b>${VB.ovr(p)}</b>${o ? d(VB.ovr(p), VB.ovr(o)) : ''}</span><span>HP <b>${Math.round(p.health)}</b>${o ? d(p.health, o.health) : ''}</span></div>
+        <div class="small muted">${ppg}${VB.isOut(p) ? ' · <b class="warn">INJURED</b>' : ''}</div></div></div>
+      <div class="skills one">${sk}</div>
+      <h4>Big Five ${sh.sr ? '<span class="srtag">O, C, N SELF-REPORTED</span>' : ''}</h4>${UI.b5Bars(p, { vals: sh.vals })}
+      <h4>Injury history</h4><ul class="hist">${hist}</ul></div>`;
+  }
   function renderMarket() {
     topbar(`<span class="chip">Swaps left <b>${S.swapsLeft}</b></span><span class="chip">Scouting <b>${S.scoutPoints}</b></span>`);
     const mp = S.market.find((p) => p.id === U.mkSel);
     const roster = S.roster.map((p) => `<div class="rrow ${U.relSel === p.id ? 'on' : ''} ${VB.isOut(p) ? 'out' : ''}" data-act="rel" data-id="${p.id}"><div class="rspr">${UI.sprite(p, { bust: true })}</div><div><b>${esc(p.name)}</b><small>${p.role} · ${p.age}y · OVR ${VB.ovr(p)}${VB.isOut(p) ? ' · <em class="warn">OUT</em>' : ''}${VB.unrehabbed(p).length ? ` · ${VB.unrehabbed(p).length} old inj.` : ''}</small></div></div>`).join('');
     const list = S.market.map((p) => `<div class="rrow ${U.mkSel === p.id ? 'on' : ''}" data-act="mk" data-id="${p.id}"><div class="rspr">${UI.sprite(p, { bust: true })}</div><div><b>${esc(p.name)}</b><small>${VB.ROLES[p.role].name} · ${p.age}y · OVR ${VB.ovr(p)} · HP ${p.health}</small></div></div>`).join('') || '<p class="muted">No free agents left.</p>';
-    let detail = '';
-    if (mp) {
-      const sh = shownB5(mp);
-      const hist = mp.history.length ? mp.history.map((h) => esc(VB.INJURIES[h.type].name)).join(', ') : 'none';
-      detail = `<div class="pcard small"><div class="pc-top"><div class="pc-spr">${UI.sprite(mp)}</div><div class="pc-id"><h2>${esc(mp.name)}</h2><div class="pc-sub">${VB.ROLES[mp.role].name} · age ${mp.age} · OVR ${VB.ovr(mp)}</div>
-        <div class="hp"><small>Health</small><span class="hpbar"><i style="width:${mp.health}%"></i></span><b>${mp.health}</b></div><div class="small">Injury history: ${hist}</div></div></div>
-        <div class="pc-sec"><h4>Big Five ${sh.sr ? '<span class="srtag">O, C, N are SELF-REPORTED</span>' : '<span class="oktag">observed</span>'}</h4>${UI.b5Bars(mp, { vals: sh.vals })}</div>
-        ${sh.sr ? `<p class="small muted">Self-report can be biased: people present themselves well. Watching them train (observation) shows the real values.</p><button class="btn small" data-act="scout" ${S.scoutPoints > 0 ? '' : 'disabled'}>👁 Observe in training (1 scout)</button>` : ''}
-        <div class="modal-btns"><button class="btn primary" data-act="sign" ${S.swapsLeft > 0 && U.relSel ? '' : 'disabled'}>${U.relSel ? `Sign, release ${esc(VB.byId(S, U.relSel).name)}` : 'Pick a player to release (left)'}</button></div></div>`;
-    }
+    const rel = U.relSel ? VB.byId(S, U.relSel) : null;
+    const detail = `<div class="cmp">
+      <div class="cmp-col out"><div class="cmp-tag">RELEASE</div>${rel ? cmpCard(rel, mp, false) : '<div class="cmp-empty">Click a player in <b>Your squad</b> to compare them here.</div>'}</div>
+      <div class="cmp-col in"><div class="cmp-tag">SIGN</div>${mp ? cmpCard(mp, rel, true) : '<div class="cmp-empty">No free agent selected.</div>'}</div>
+    </div>
+    ${mp && shownB5(mp).sr ? `<p class="small muted">The free agent's O, C and N are <b>self-reported</b>, and self-report can be biased. Observing them in training shows the real values.</p><button class="btn small" data-act="scout" ${S.scoutPoints > 0 ? '' : 'disabled'}>👁 Observe ${esc(mp.name.split(' ')[0])} in training (1 scout)</button>` : ''}
+    <div class="modal-btns"><button class="btn primary" data-act="sign" ${S.swapsLeft > 0 && rel && mp ? '' : 'disabled'}>${rel && mp ? `Sign ${esc(mp.name)}, release ${esc(rel.name)}` : 'Pick one from each list'}</button></div>`;
     screen(`<div class="market">
       <div class="mk-col"><h3>Your squad <small>click to release</small></h3><div class="rlist">${roster}</div></div>
       <div class="mk-col"><h3>${S.mk.label}: free agents <small>swap up to ${S.mk.n}</small></h3><div class="rlist">${list}</div></div>
@@ -565,7 +581,7 @@
     const R = computeReport(), m = S.metrics;
     const pct = (x) => Math.round(x * 100) + '%';
     const exBar = ['low', 'medium', 'high', 'very high'].map((k) => `<i style="width:${(R.ex[k] / R.exT) * 100}%;background:${VB.RISK_COLORS[k]}" title="${k}: ${R.ex[k]} player-matches"></i>`).join('');
-    const evs = m.events.map((e) => `<li class="${e.quality}"><b>${esc(e.title)}</b>: ${esc(e.choice)} <em>${VB.CONCEPTS[e.concept] ? VB.CONCEPTS[e.concept].ref + ' ' + esc(VB.CONCEPTS[e.concept].name) : ''}</em></li>`).join('');
+    const evs = m.events.map((e) => `<li class="${e.quality}"><b>${esc(e.title)}</b>: ${esc(e.choice)} <em ${VB.conceptAttr(e.concept)}>${VB.CONCEPTS[e.concept] ? VB.CONCEPTS[e.concept].ref + ' ' + esc(VB.CONCEPTS[e.concept].name) : ''}</em></li>`).join('');
     const injs = m.injuries.map((i) => `<li>S${i.season} W${i.week}: <b>${esc(i.name)}</b>, ${esc(i.type)} <small class="${i.kind}">${i.kind}</small>${i.weeks ? ` (${i.weeks} wk)` : ''}</li>`).join('') || '<li>None. Remarkable.</li>';
     const outcome = m.collapse ? 'TEAM COLLAPSE' : R.final ? (R.final.us > R.final.them ? 'CHAMPIONS' : 'FINALISTS') : 'SEASON COMPLETE';
     const weakest = Object.entries(R.qa.terms).filter(([, r]) => r.a >= 2).sort((a, b) => a[1].c / a[1].a - b[1].c / b[1].a).slice(0, 3).map(([t]) => t);
@@ -587,7 +603,9 @@
         <div class="rep-box"><h3>Decisions</h3><ul class="evlist">${evs || '<li>No events.</li>'}</ul></div>
         <div class="rep-box"><h3>Injuries (${m.injuries.length})</h3><ul class="evlist">${injs}</ul></div>
       </div>
-      <div class="rep-box"><h3>Concepts discovered: ${S.notebook.length}/${Object.keys(VB.CONCEPTS).length}</h3><div class="concept-tags">${S.notebook.map((c) => `<span title="${esc(VB.CONCEPTS[c].text)}">${VB.CONCEPTS[c].ref} ${esc(VB.CONCEPTS[c].name)}</span>`).join('')}</div></div>
+      ${(() => { const ex = S.metrics.exams || []; if (!ex.length) return '<div class="rep-box"><h3>Exam-style questions</h3><p class="muted">None attempted. Try the 📝 Exam drill or the Notebook next run.</p></div>'; const g = ex.reduce((a, e) => a + e.got, 0), m = ex.reduce((a, e) => a + e.max, 0);
+        return `<div class="rep-box"><h3>Exam-style questions <small>${ex.length} attempted · ${g}/${m} marks (${Math.round((100 * g) / m)}%)</small></h3><ul class="evlist">${ex.map((e) => `<li><b ${VB.conceptAttr(e.id)}>${esc(VB.CONCEPTS[e.id] ? VB.CONCEPTS[e.id].name : e.id)}</b>: ${e.got}/${e.max} <small class="muted">S${e.season} W${e.week}${e.drill ? ' · drill' : ''}</small></li>`).join('')}</ul></div>`; })()}
+      <div class="rep-box"><h3>Concepts discovered: ${S.notebook.length}/${Object.keys(VB.CONCEPTS).length}</h3><div class="concept-tags">${S.notebook.map((c) => `<span ${VB.conceptAttr(c)}>${VB.CONCEPTS[c].ref} ${esc(VB.CONCEPTS[c].name)}</span>`).join('')}</div></div>
       <div class="rep-box"><h3>Reflect</h3><ol class="reflect">
         <li>Pick one injury from your run. Name its internal and external risk factors. What would have lowered the likelihood or the severity?</li>
         <li>Which player's Big Five profile most changed how you coached them? Describe one behaviour it made more likely, then explain why.</li>
@@ -609,6 +627,7 @@
       `Command terms: ${R.qa.c}/${R.qa.a} correct overall. S1 ${s1.pct ?? '-'}%, S2 ${s2.pct ?? '-'}%${s1.a && s2.a ? ` (change ${s2.pct - s1.pct > 0 ? '+' : ''}${s2.pct - s1.pct}%)` : ''}`, ...terms,
       `Acceptable-risk player-matches: ${Math.round(R.safe * 100)}% | Injuries: ${m.injuries.length} (${m.injuries.filter((i) => i.kind === 'chronic').length} chronic) | Full rehabs: ${m.rehabFull} | Early returns: ${m.earlyReturns}`,
       `Strong locker-room calls: ${R.evG}/${m.events.length} | At-risk players given recovery: ${Math.round(R.ordPct * 100)}% | Trait shifts: ${m.traitShifts}`,
+      `Exam-style questions: ${(m.exams || []).map((e) => `${VB.CONCEPTS[e.id] ? VB.CONCEPTS[e.id].name : e.id} ${e.got}/${e.max}`).join('; ') || 'none'}`,
       'Decisions:', ...m.events.map((e) => ` - [${e.quality}] ${e.title}: ${e.choice}`),
       'Injuries:', ...m.injuries.map((i) => ` - S${i.season}W${i.week} ${i.name}: ${i.type} (${i.kind})`),
       `Concepts: ${S.notebook.map((c) => VB.CONCEPTS[c].name).join(', ')}`,
@@ -618,9 +637,49 @@
   // ======================================================================
   function notebook() {
     const all = Object.keys(VB.CONCEPTS);
+    const done = (S.metrics.exams || []).reduce((m, e) => ((m[e.id] = Math.max(m[e.id] || 0, e.got / e.max)), m), {});
     modal(`<div class="nb"><button class="x" data-act="close-modal">✕</button><h2>Coach's Notebook <small>${S.notebook.length}/${all.length}</small></h2>
-      <div class="nb-grid">${all.map((c) => { const k = VB.CONCEPTS[c]; const has = S.notebook.includes(c); return `<div class="nbc ${has ? '' : 'locked'}"><small>${k.ref}</small><b>${has ? esc(k.name) : '???'}</b>${has ? `<p>${esc(k.text)}</p>` : ''}</div>`; }).join('')}</div>
+      <p class="small muted">Click an unlocked card to read more and try an exam-style question with its markscheme.</p>
+      <div class="nb-grid">${all.map((c) => { const k = VB.CONCEPTS[c]; const has = S.notebook.includes(c); const x = VB.Exam.get(c);
+        return `<div class="nbc ${has ? 'open' : 'locked'}" ${has ? `data-act="nb-open" data-c="${c}"` : ''}><small>${k.ref}</small><b>${has ? esc(k.name) : '???'}</b>${has ? `<p>${esc(k.text)}</p>${x ? `<span class="nbq ${x.q.official ? 'off' : ''}">${x.q.official ? '★ IB' : '✎'} ${esc(x.q.term)} [${x.q.marks}]${done[c] != null ? ` · best ${Math.round(done[c] * 100)}%` : ''}</span>` : ''}` : ''}</div>`; }).join('')}</div>
       <h3>Command terms</h3><div class="nb-terms">${Object.keys(VB.TERMS).map((t) => `<div><b>${t}</b><small>L${VB.TERMS[t].lvl}</small><p>${VB.TERMS[t].def}</p></div>`).join('')}</div></div>`, 'nb-modal', true);
+  }
+  function conceptPage(c, drill) {
+    const k = VB.CONCEPTS[c], x = VB.Exam.get(c);
+    modal(`<div class="nbd"><button class="x" data-act="close-modal">✕</button>
+      ${drill ? '<div class="ev-tag">EXAM DRILL · FILM-STUDY BONUS</div>' : '<button class="btn tiny ghost" data-act="notebook">◂ Notebook</button>'}
+      <div class="nbd-h"><small>${k.ref}</small><h2>${esc(k.name)}</h2></div>
+      <p class="nbd-card">${esc(k.text)}</p>
+      ${x && x.more ? `<p class="nbd-more">${esc(x.more)}</p>` : ''}
+      ${x && x.related && x.related.length ? `<p class="small muted">See also: ${x.related.map(esc).join(' · ')}</p>` : ''}
+      ${drill ? `<div class="drillinfo">Score <b>50%+</b>: every healthy player gets +1 drill form this week. Score <b>100%</b>: chemistry +2 and stress down for the squad too.</div>` : ''}
+      <div class="xroot"></div></div>`, 'nbd-modal', !drill);
+    VB.Exam.mount(document.querySelector('.xroot'), c, { saveLabel: drill ? 'Bank the mark and return ▸' : 'Save my mark', onDone: (r) => examDone(c, r, drill) });
+  }
+  function examDone(c, r, drill) {
+    S.metrics.exams = S.metrics.exams || [];
+    S.metrics.exams.push({ id: c, got: r.got, max: r.max, season: S.season, week: S.week, drill: !!drill });
+    const pct = r.got / r.max;
+    if (drill) {
+      S.drillWeek = S.season + '-' + S.week;
+      if (pct >= 0.5) {
+        S.roster.forEach((p) => { if (VB.isOut(p)) return; const k = VB.ORDERS[p.order] && VB.ORDERS[p.order].skill; if (k) p.form[k] = Math.min(3, (p.form[k] || 0) + 1); });
+        if (pct >= 1) { S.chemBonus = (S.chemBonus || 0) + 2; S.roster.forEach((p) => (p.stress = VB.clamp(p.stress - 10, 0, 100))); }
+        UI.toast(`📝 ${r.got}/${r.max}. Film-study bonus: +1 drill form for the squad${pct >= 1 ? ', chemistry +2, stress down' : ''}.`, 'good');
+      } else UI.toast(`📝 ${r.got}/${r.max}. No bonus this time. Read the markscheme and try another next week.`, 'bad');
+      UI.closeModal(); S.synergy = VB.computeSynergy(S); renderHub(); autosave();
+    } else { UI.toast(`📝 Saved: ${r.got}/${r.max} on ${VB.CONCEPTS[c].name}`, 'info'); notebook(); }
+  }
+  function drillPicker() {
+    if (S.drillWeek === S.season + '-' + S.week) return UI.toast('One exam drill per week. Come back next week!', 'info');
+    const tried = new Set((S.metrics.exams || []).map((e) => e.id));
+    const pool = Object.keys(VB.EXAMDATA || {}).filter((c) => VB.CONCEPTS[c]);
+    if (!pool.length) return UI.toast('No exam items available.', 'bad');
+    const score = (c) => (S.notebook.includes(c) ? 0 : 2) + (tried.has(c) ? 1 : 0) + VB.rand();
+    const pick = pool.sort((a, b) => score(a) - score(b)).slice(0, 3);
+    modal(`<div class="drillpick"><button class="x" data-act="close-modal">✕</button><div class="ev-tag">EXAM DRILL</div><h2>Film study: pick a question</h2>
+      <p class="muted">Answer one exam-style question this week. A good answer sharpens the whole squad.</p>
+      <div class="focus-opts">${pick.map((c) => { const x = VB.EXAMDATA[c], k = VB.CONCEPTS[c]; return `<button class="focus-card" data-act="drill-go" data-c="${c}"><b>${esc(k.name)}</b><span>${esc(x.q.term)} · ${x.q.marks} mark${x.q.marks > 1 ? 's' : ''}${x.q.data ? ' · data-based (Paper 1B style)' : ''}</span><small>${x.q.official ? '★ Official IB specimen item' : '✎ IB-style item'} · ${k.ref}</small></button>`; }).join('')}</div></div>`, 'drill-modal', true);
   }
 
   async function onClick(e) {
@@ -638,6 +697,9 @@
       case 'mute': VB.toggleMute(); el.textContent = VB.isMuted() ? '🔇' : '🔊'; return;
       case 'close-modal': return UI.closeModal();
       case 'notebook': return notebook();
+      case 'nb-open': return conceptPage(el.dataset.c, false);
+      case 'drill': return drillPicker();
+      case 'drill-go': return conceptPage(el.dataset.c, true);
       case 'trait': {
         const p = VB.byId(S, el.dataset.pid) || (S.market || []).find((x) => x.id === el.dataset.pid);
         if (!p) return;
@@ -678,6 +740,6 @@
     }
   }
 
-  window.VBDebug = { get state() { return S; }, U, startRun, endReport };
+  window.VBDebug = { get state() { return S; }, U, startRun, endReport, openMarket: (...a) => openMarket(...a), notebook: () => notebook() };
   window.addEventListener('DOMContentLoaded', boot);
 })();
