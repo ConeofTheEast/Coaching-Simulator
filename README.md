@@ -29,6 +29,14 @@ Open `index.html` in Chrome or Edge, either by double-clicking it or from GitHub
 - **Spaced repetition** uses Leitner-style boxes per term, weighted toward commonly confused groups (Describe/Explain/Outline, Discuss/Evaluate/To what extent, Compare/Compare and contrast/Distinguish, Suggest/Predict/Deduce).
 - Accuracy per term is tracked each season. The season review and the end report show the **% change** from Season 1 to Season 2.
 
+## Coach's Notebook exam items
+
+Every notebook concept (39) opens a page with an expanded explanation and one **exam-style question with an IB-format markscheme**: one point per mark, `/` alternatives, OR, «chevrons», [n max] caps, and notes.
+- **Sources:** 4 items are **official specimen items** (2026 SL Paper 2), reproduced near-verbatim. The rest are **generated in IB style** from the SL textbook pages and labelled "not an official IB question". About a third are Paper 1B-style data items with hypothetical tables.
+- **How they were made:** three author agents (C.1.1, C.1.2, B.3) wrote the items. Three separate reviewer agents then checked every item against the specimen markschemes and the textbook pages. They corrected official items back to verbatim, fixed command-term and mark allocations, removed unsupported claims and HL content, and tested the auto-marker on strong, partial, keyword-stuffed and off-topic answers. Their change logs are in `docs/exam-items/`.
+- **Marking:** students type an answer, then tick the markscheme points they really made. Keyword matching **suggests** ticks, but it cannot detect negation or reasoning, so the student (or teacher) confirms each one. This mirrors how IB examiners award marks point by point.
+- **In the game:** the **📝 Exam drill** button (once a week) asks one item. 50%+ gives every healthy player +1 drill form, and 100% also gives chemistry +2 and lowers stress. Scores appear in the end report.
+
 ## What it teaches (SL content only)
 
 | Game mechanic | Textbook idea |

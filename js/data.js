@@ -35,7 +35,7 @@
     early_return: { name: 'Returning too early', ref: 'B.3.1', text: 'Athletes rush back because the injury "seems minor", fear losing skill, or fear losing their spot.' },
     psych_risk: { name: 'Psychological risk factors', ref: 'B.3.1', text: 'Stress, life events and poor sleep raise injury risk through fatigue and poor recovery.' },
     training_volume: { name: 'Training volume', ref: 'B.3.1', text: 'Large increases in training volume increase injury risk. More is not always better.' },
-    age: { name: 'Age', ref: 'B.3.1', text: 'Age is an internal risk factor. Older athletes recover more slowly.' },
+    age: { name: 'Age', ref: 'B.3.1', text: 'Age is an internal risk factor. In youth sport, injury risk rises with age and the growth spurt. (In this game, veterans aged 31+ also carry extra risk.)' },
     ppe: { name: 'Protective equipment', ref: 'B.3.1', text: 'Padding, guards and mouthguards lower the severity of contact injuries.' },
     surface: { name: 'Playing surface', ref: 'B.3.1', text: 'Artificial surfaces raise injury risk, especially abrasions.' },
     position: { name: 'Position', ref: 'B.3.1', text: 'Players in high-contact positions face more collisions and greater forces.' },

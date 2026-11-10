@@ -65,7 +65,7 @@
   VB.Exam.questionHTML = function (q) {
     const stem = esc(q.stem).replace(new RegExp(esc(q.term), 'i'), (m) => `<b class="cterm">${m}</b>`);
     return `<div class="xq">
-      <div class="xsrc ${q.official ? 'off' : 'gen'}">${q.official ? '★ Official IB specimen item' : '✎ Generated in IB style'} · ${esc(q.src)}${q.paper ? ' · ' + esc(q.paper) : ''}</div>
+      <div class="xsrc ${q.official ? 'off' : 'gen'}">${q.official ? '★ Official IB specimen item · ' + esc(q.src) : '✎ Generated in IB style · not an official IB question'}${q.paper ? ' · ' + esc(q.paper) : ''}</div>
       ${q.context ? `<p class="xctx">${esc(q.context)}</p>` : ''}${tableHTML(q.data)}
       <div class="xstem">${stem} <span class="xmarks">[${q.marks}]</span></div>
       ${VB.TERMS[q.term] ? `<div class="xterm"><b>${esc(q.term)}</b>: ${esc(VB.TERMS[q.term].def)}</div>` : ''}
